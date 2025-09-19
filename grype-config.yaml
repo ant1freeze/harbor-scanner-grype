@@ -1,0 +1,10 @@
+registry:
+  # use http instead of https when connecting to the registry
+  insecure-use-http: true
+  
+  # skip TLS verification when communicating with the registry
+  insecure-skip-tls-verify: true
+
+  # Authentication credentials will be provided via environment variables
+  # This allows dynamic configuration based on Harbor's request
+  auth: []
