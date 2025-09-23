@@ -17,15 +17,17 @@ type Match struct {
 }
 
 type Vulnerability struct {
-	ID          string   `json:"id"`
-	DataSource  string   `json:"dataSource"`
-	Namespace   string   `json:"namespace"`
-	Severity    string   `json:"severity"`
-	URLs        []string `json:"urls"`
-	Description string   `json:"description"`
-	Cvss        []Cvss   `json:"cvss"`
-	Fix         Fix      `json:"fix"`
-	Advisories  []string `json:"advisories"`
+	ID                     string                 `json:"id"`
+	DataSource             string                 `json:"dataSource"`
+	Namespace              string                 `json:"namespace"`
+	Severity               string                 `json:"severity"`
+	URLs                   []string               `json:"urls"`
+	Description            string                 `json:"description"`
+	Cvss                   []Cvss                 `json:"cvss"`
+	Fix                    Fix                    `json:"fix"`
+	Advisories             []string               `json:"advisories"`
+	EPSS                   []EPSS                 `json:"epss,omitempty"` // Array in Grype 0.100.0
+	RelatedVulnerabilities []RelatedVulnerability `json:"relatedVulnerabilities,omitempty"`
 }
 
 type Cvss struct {
@@ -46,12 +48,12 @@ type Fix struct {
 }
 
 type Artifact struct {
-	Name    string            `json:"name"`
-	Version string            `json:"version"`
-	Type    string            `json:"type"`
-	FoundBy string            `json:"foundBy"`
-	Locations []Location      `json:"locations"`
-	Metadata map[string]any   `json:"metadata"`
+	Name      string         `json:"name"`
+	Version   string         `json:"version"`
+	Type      string         `json:"type"`
+	FoundBy   string         `json:"foundBy"`
+	Locations []Location     `json:"locations"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 type Location struct {
@@ -66,24 +68,24 @@ type Source struct {
 }
 
 type ImageInfo struct {
-	UserInput      string    `json:"userInput"`
-	ImageID        string    `json:"imageID"`
-	ImageDigest    string    `json:"imageDigest"`
-	ImageManifest  string    `json:"imageManifest"`
-	ImageConfig    string    `json:"imageConfig"`
-	ImageConfigDigest string `json:"imageConfigDigest"`
-	ImageLayers    []string  `json:"imageLayers"`
-	ImageSize      int64     `json:"imageSize"`
-	ManifestDigest string    `json:"manifestDigest"`
-	MediaType      string    `json:"mediaType"`
-	Tags           []string  `json:"tags"`
-	RepoDigests    []string  `json:"repoDigests"`
-	Architecture   string    `json:"architecture"`
-	OS             string    `json:"os"`
-	Created        time.Time `json:"created"`
-	BuiltBy        string    `json:"builtBy"`
-	BuildKit       string    `json:"buildKit"`
-	Distro         Distro    `json:"distro"`
+	UserInput         string    `json:"userInput"`
+	ImageID           string    `json:"imageID"`
+	ImageDigest       string    `json:"imageDigest"`
+	ImageManifest     string    `json:"imageManifest"`
+	ImageConfig       string    `json:"imageConfig"`
+	ImageConfigDigest string    `json:"imageConfigDigest"`
+	ImageLayers       []string  `json:"imageLayers"`
+	ImageSize         int64     `json:"imageSize"`
+	ManifestDigest    string    `json:"manifestDigest"`
+	MediaType         string    `json:"mediaType"`
+	Tags              []string  `json:"tags"`
+	RepoDigests       []string  `json:"repoDigests"`
+	Architecture      string    `json:"architecture"`
+	OS                string    `json:"os"`
+	Created           time.Time `json:"created"`
+	BuiltBy           string    `json:"builtBy"`
+	BuildKit          string    `json:"buildKit"`
+	Distro            Distro    `json:"distro"`
 }
 
 type Distro struct {
@@ -107,4 +109,23 @@ type VersionInfo struct {
 type Report struct {
 	SBOM            any
 	Vulnerabilities []Vulnerability
+}
+
+// EPSS represents Exploit Prediction Scoring System data
+type EPSS struct {
+	Score      float64 `json:"epss"`       // EPSS score (0.0-1.0)
+	Percentile float64 `json:"percentile"` // EPSS percentile
+	Date       string  `json:"date"`       // Date of EPSS data
+}
+
+// RelatedVulnerability represents related vulnerability information
+type RelatedVulnerability struct {
+	ID          string   `json:"id"`
+	DataSource  string   `json:"dataSource"`
+	Namespace   string   `json:"namespace"`
+	Severity    string   `json:"severity"`
+	URLs        []string `json:"urls"`
+	Description string   `json:"description"`
+	Cvss        []Cvss   `json:"cvss"`
+	EPSS        []EPSS   `json:"epss,omitempty"`
 }

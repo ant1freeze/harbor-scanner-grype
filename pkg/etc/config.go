@@ -1,12 +1,14 @@
 package etc
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/caarlos0/env/v6"
+	"gopkg.in/yaml.v2"
 )
 
 type BuildInfo struct {
@@ -21,27 +23,28 @@ type Config struct {
 	RedisStore RedisStore
 	JobQueue   JobQueue
 	RedisPool  RedisPool
+	Risk       RiskConfig
 }
 
 type Grype struct {
-	CacheDir         string        `env:"SCANNER_GRYPE_CACHE_DIR" envDefault:"/home/scanner/.cache/grype"`
-	ReportsDir       string        `env:"SCANNER_GRYPE_REPORTS_DIR" envDefault:"/home/scanner/.cache/reports"`
-	DebugMode        bool          `env:"SCANNER_GRYPE_DEBUG_MODE" envDefault:"false"`
-	Severity         string        `env:"SCANNER_GRYPE_SEVERITY" envDefault:"Unknown,Low,Medium,High,Critical"`
-	IgnoreUnfixed    bool          `env:"SCANNER_GRYPE_IGNORE_UNFIXED" envDefault:"false"`
-	OnlyFixed        bool          `env:"SCANNER_GRYPE_ONLY_FIXED" envDefault:"false"`
-	SkipUpdate       bool          `env:"SCANNER_GRYPE_SKIP_UPDATE" envDefault:"false"`
-	OfflineScan      bool          `env:"SCANNER_GRYPE_OFFLINE_SCAN" envDefault:"false"`
-	Insecure         bool          `env:"SCANNER_GRYPE_INSECURE" envDefault:"false"`
-	Timeout          time.Duration `env:"SCANNER_GRYPE_TIMEOUT" envDefault:"5m0s"`
-	ConfigFile       string        `env:"SCANNER_GRYPE_CONFIG_FILE"`
-	FailOnSeverity   string        `env:"SCANNER_GRYPE_FAIL_ON_SEVERITY"`
-	AddCPEsIfNone    bool          `env:"SCANNER_GRYPE_ADD_CPES_IF_NONE" envDefault:"false"`
-	ByCVE            bool          `env:"SCANNER_GRYPE_BY_CVE" envDefault:"false"`
-	Platform         string        `env:"SCANNER_GRYPE_PLATFORM"`
-	Distro           string        `env:"SCANNER_GRYPE_DISTRO"`
-	ExcludeAddl      string        `env:"SCANNER_GRYPE_EXCLUDE_ADDL"`
-	Output           string        `env:"SCANNER_GRYPE_OUTPUT" envDefault:"json"`
+	CacheDir       string        `env:"SCANNER_GRYPE_CACHE_DIR" envDefault:"/home/scanner/.cache/grype"`
+	ReportsDir     string        `env:"SCANNER_GRYPE_REPORTS_DIR" envDefault:"/home/scanner/.cache/reports"`
+	DebugMode      bool          `env:"SCANNER_GRYPE_DEBUG_MODE" envDefault:"false"`
+	Severity       string        `env:"SCANNER_GRYPE_SEVERITY" envDefault:"Unknown,Low,Medium,High,Critical"`
+	IgnoreUnfixed  bool          `env:"SCANNER_GRYPE_IGNORE_UNFIXED" envDefault:"false"`
+	OnlyFixed      bool          `env:"SCANNER_GRYPE_ONLY_FIXED" envDefault:"false"`
+	SkipUpdate     bool          `env:"SCANNER_GRYPE_SKIP_UPDATE" envDefault:"false"`
+	OfflineScan    bool          `env:"SCANNER_GRYPE_OFFLINE_SCAN" envDefault:"false"`
+	Insecure       bool          `env:"SCANNER_GRYPE_INSECURE" envDefault:"false"`
+	Timeout        time.Duration `env:"SCANNER_GRYPE_TIMEOUT" envDefault:"5m0s"`
+	ConfigFile     string        `env:"SCANNER_GRYPE_CONFIG_FILE"`
+	FailOnSeverity string        `env:"SCANNER_GRYPE_FAIL_ON_SEVERITY"`
+	AddCPEsIfNone  bool          `env:"SCANNER_GRYPE_ADD_CPES_IF_NONE" envDefault:"false"`
+	ByCVE          bool          `env:"SCANNER_GRYPE_BY_CVE" envDefault:"false"`
+	Platform       string        `env:"SCANNER_GRYPE_PLATFORM"`
+	Distro         string        `env:"SCANNER_GRYPE_DISTRO"`
+	ExcludeAddl    string        `env:"SCANNER_GRYPE_EXCLUDE_ADDL"`
+	Output         string        `env:"SCANNER_GRYPE_OUTPUT" envDefault:"json"`
 }
 
 type API struct {
@@ -96,6 +99,38 @@ func LogLevel() slog.Level {
 	return slog.LevelInfo
 }
 
+// RiskConfig represents risk calculation configuration
+type RiskConfig struct {
+	Risk RiskConfigData `yaml:"risk"`
+}
+
+type RiskConfigData struct {
+	Mode           string         `yaml:"mode"`            // "formula" or "cvss"
+	Thresholds     RiskThresholds `yaml:"thresholds"`      // Used when mode = "formula"
+	CVSSThresholds CVSSThresholds `yaml:"cvss_thresholds"` // Used when mode = "cvss"
+	Defaults       RiskDefaults   `yaml:"defaults"`
+	Enabled        bool           `yaml:"enabled"`
+}
+
+type RiskThresholds struct {
+	Critical float64 `yaml:"critical"`
+	High     float64 `yaml:"high"`
+	Medium   float64 `yaml:"medium"`
+	Low      float64 `yaml:"low"`
+}
+
+type CVSSThresholds struct {
+	Critical float64 `yaml:"critical"`
+	High     float64 `yaml:"high"`
+	Medium   float64 `yaml:"medium"`
+	Low      float64 `yaml:"low"`
+}
+
+type RiskDefaults struct {
+	EPSS float64 `yaml:"epss"`
+	CVSS float64 `yaml:"cvss"`
+}
+
 func GetConfig() (Config, error) {
 	var cfg Config
 	err := env.Parse(&cfg)
@@ -109,5 +144,68 @@ func GetConfig() (Config, error) {
 		}
 	}
 
+	// Load risk configuration from YAML file
+	riskConfig, err := LoadRiskConfig()
+	if err != nil {
+		slog.Warn("Failed to load risk config, using defaults", "error", err)
+		cfg.Risk = getDefaultRiskConfig()
+	} else {
+		cfg.Risk = riskConfig
+	}
+
 	return cfg, nil
+}
+
+func LoadRiskConfig() (RiskConfig, error) {
+	var config RiskConfig
+
+	// Try to load from risk-config.yaml
+	configPath := "/app/risk-config.yaml"
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Fallback to current directory for development
+		configPath = "risk-config.yaml"
+	}
+
+	fmt.Printf("DEBUG: Loading risk config from: %s\n", configPath)
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		fmt.Printf("DEBUG: Failed to read config file: %v\n", err)
+		return config, err
+	}
+
+	fmt.Printf("DEBUG: Config file content: %s\n", string(data))
+	err = yaml.Unmarshal(data, &config)
+	if err != nil {
+		fmt.Printf("DEBUG: Failed to unmarshal config: %v\n", err)
+		return config, err
+	}
+
+	fmt.Printf("DEBUG: Loaded config: Enabled=%t, Mode=%s, Thresholds: Low=%.1f, Medium=%.1f, High=%.1f, Critical=%.1f\n",
+		config.Risk.Enabled, config.Risk.Mode, config.Risk.Thresholds.Low, config.Risk.Thresholds.Medium, config.Risk.Thresholds.High, config.Risk.Thresholds.Critical)
+	return config, nil
+}
+
+func getDefaultRiskConfig() RiskConfig {
+	return RiskConfig{
+		Risk: RiskConfigData{
+			Mode: "cvss", // Default to CVSS mode
+			Thresholds: RiskThresholds{
+				Critical: 75.0,
+				High:     50.0,
+				Medium:   25.0,
+				Low:      10.0,
+			},
+			CVSSThresholds: CVSSThresholds{
+				Critical: 9.0,
+				High:     7.0,
+				Medium:   4.0,
+				Low:      0.1,
+			},
+			Defaults: RiskDefaults{
+				EPSS: 0.1,
+				CVSS: 5.0,
+			},
+			Enabled: true,
+		},
+	}
 }

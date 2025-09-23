@@ -1,0 +1,33 @@
+# Risk calculation configuration
+# Formula: Risk = EPSS * (CVSS/10)
+# Risk percentage thresholds for severity levels
+
+risk:
+  # Calculation mode: "formula" or "cvss"
+  # - "formula": Use Risk = EPSS * (CVSS/10) with custom thresholds
+  # - "cvss": Use original Grype CVSS-based severity mapping
+  mode: "formula"
+
+  # Risk percentage thresholds (0-100%) - only used when mode = "formula"
+  thresholds:
+    critical: 85.0  # Risk >= 85% = Critical
+    high: 70.0      # Risk >= 70% = High  
+    medium: 50.0    # Risk >= 50% = Medium
+    low: 0.01       # Risk >= 0.01% = Low
+    # Below 0.01% = Unknown
+
+  # CVSS thresholds - only used when mode = "cvss"
+  cvss_thresholds:
+    critical: 9.0   # CVSS >= 9.0 = Critical
+    high: 7.0       # CVSS >= 7.0 = High
+    medium: 4.0     # CVSS >= 4.0 = Medium
+    low: 0.1        # CVSS >= 0.1 = Low
+    # Below 0.1 = Unknown
+
+  # Default values when EPSS or CVSS data is missing
+  defaults:
+    epss: 0.1       # Default EPSS score (10% probability)
+    cvss: 5.0       # Default CVSS score (medium severity)
+
+  # Enable/disable risk calculation (if false, uses original Grype severity)
+  enabled: true

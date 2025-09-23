@@ -1,0 +1,19 @@
+{
+  "registry": {
+    "url": "http://harbor.corp.local",
+    "authorization": ""
+  },
+  "artifact": {
+    "repository": "stools/postgres",
+        "digest": "sha256:389b4c4cdd53a168f26f36d7a3f1fe336d3c7776041908cdd6cf3e1e541a79f6",
+    "mime_type": "application/vnd.docker.distribution.manifest.v2+json"
+  },
+  "enabled_capabilities": [
+    {
+      "type": "vulnerability",
+      "produces_mime_types": [
+        "application/vnd.security.vulnerability.report; version=1.1"
+      ]
+    }
+  ]
+}
