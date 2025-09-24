@@ -116,20 +116,23 @@ func (c ScanRequest) GetImageRef() (imageRef string, nonSSL bool, err error) {
 
 	// Use the hostname that Harbor provides in the request
 	hostname := registryURL.Hostname()
-	
+
 	fmt.Printf("DEBUG: Original URL: %s, hostname: %s, port: %s\n", c.Registry.URL, hostname, port)
-	
+
 	// Fix hostname to use internal Docker network names
+	// Note: For SBOM scanning, we should use the original hostname that Harbor provides
+	// because Harbor needs to access the registry using the external address
 	if hostname == "localhost" {
 		hostname = "nginx"
 		port = "8080"
 		fmt.Printf("DEBUG: Mapped localhost to nginx:8080\n")
 	} else if hostname == "harbor.corp.local" {
-		hostname = "nginx"
-		port = "8080"
-		fmt.Printf("DEBUG: Mapped harbor.corp.local to nginx:8080\n")
+		// Keep original hostname for SBOM scanning - Harbor needs external access
+		// Harbor is configured to force HTTPS, so use port 443
+		port = "443"
+		fmt.Printf("DEBUG: Keeping original hostname harbor.corp.local for SBOM scanning, using HTTPS port 443\n")
 	}
-	
+
 	// If no port specified, use default ports
 	if port == "" && registryURL.Scheme == "http" {
 		port = "80"
@@ -137,12 +140,17 @@ func (c ScanRequest) GetImageRef() (imageRef string, nonSSL bool, err error) {
 	if port == "" && registryURL.Scheme == "https" {
 		port = "443"
 	}
-	
-	
+
 	// Format for Grype registry: hostname:port/repository
 	imageRef = fmt.Sprintf("%s:%s/%s@%s", hostname, port, c.Artifact.Repository, c.Artifact.Digest)
-	nonSSL = "http" == registryURL.Scheme
-	
+
+	// Set nonSSL flag - use HTTPS for harbor.corp.local, HTTP for others
+	if hostname == "harbor.corp.local" {
+		nonSSL = false // Use HTTPS for harbor.corp.local
+	} else {
+		nonSSL = "http" == registryURL.Scheme
+	}
+
 	fmt.Printf("DEBUG: Final imageRef: %s\n", imageRef)
 	return
 }

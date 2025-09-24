@@ -50,13 +50,16 @@ func NewEnqueuer(config etc.JobQueue, rdb *redis.Client, store persistence.Store
 
 func (e *enqueuer) Enqueue(ctx context.Context, request harbor.ScanRequest) (string, error) {
 	scanJobID := uuid.New().String()
-	
-	// Determine media type from capabilities
+
+	// Determine media type and MIME type from capabilities
 	var mediaType api.MediaType
+	var mimeType api.MIMEType = api.MimeTypeSecurityVulnerabilityReport // default
+
 	for _, capability := range request.Capabilities {
 		if capability.Type == harbor.CapabilityTypeSBOM && capability.Parameters != nil {
 			if len(capability.Parameters.SBOMMediaTypes) > 0 {
 				mediaType = capability.Parameters.SBOMMediaTypes[0]
+				mimeType = api.MimeTypeSecuritySBOMReport
 				break
 			}
 		}
@@ -64,7 +67,7 @@ func (e *enqueuer) Enqueue(ctx context.Context, request harbor.ScanRequest) (str
 
 	scanJobKey := job.ScanJobKey{
 		ID:        scanJobID,
-		MIMEType:  api.MimeTypeSecurityVulnerabilityReport,
+		MIMEType:  mimeType,
 		MediaType: mediaType,
 	}
 
@@ -93,7 +96,7 @@ func (e *enqueuer) Enqueue(ctx context.Context, request harbor.ScanRequest) (str
 		return "", xerrors.Errorf("publishing job: %w", err)
 	}
 
-	slog.Info("Enqueued scan job", 
+	slog.Info("Enqueued scan job",
 		slog.String("scan_job_id", scanJobID),
 		slog.String("channel", channel))
 

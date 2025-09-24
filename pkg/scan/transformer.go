@@ -12,6 +12,7 @@ import (
 
 type Transformer interface {
 	Transform(mediaType api.MediaType, request harbor.ScanRequest, report grype.Report) *harbor.ScanReport
+	TransformSBOM(mediaType api.MediaType, request harbor.ScanRequest, sbom any) *harbor.ScanReport
 }
 
 type transformer struct {
@@ -292,4 +293,14 @@ func (t *transformer) mapCVSSToSeverity(cvssScore float64) harbor.Severity {
 		return harbor.SevLow
 	}
 	return harbor.SevUnknown
+}
+
+func (t *transformer) TransformSBOM(mediaType api.MediaType, request harbor.ScanRequest, sbom any) *harbor.ScanReport {
+	return &harbor.ScanReport{
+		GeneratedAt: t.clock.Now(),
+		Artifact:    request.Artifact,
+		Scanner:     harbor.GetScannerMetadata(),
+		MediaType:   mediaType,
+		SBOM:        sbom,
+	}
 }

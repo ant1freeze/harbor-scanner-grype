@@ -3,10 +3,11 @@ package scan
 import (
 	"context"
 	"encoding/base64"
-	"github.com/samber/lo"
-	"golang.org/x/xerrors"
 	"log/slog"
 	"strings"
+
+	"github.com/samber/lo"
+	"golang.org/x/xerrors"
 
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/grype"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/harbor"
@@ -81,16 +82,33 @@ func (c *controller) scan(ctx context.Context, scanJobKey job.ScanJobKey, req *h
 		NonSSL: nonSSL,
 	}
 
-	scanReport, err := c.wrapper.Scan(ref, grype.ScanOption{
-		Format: determineFormat(scanJobKey.MediaType),
-	})
-	if err != nil {
-		return xerrors.Errorf("running grype wrapper: %v", err)
-	}
+	// Check if this is an SBOM scan request
+	if scanJobKey.MIMEType.Equal(api.MimeTypeSecuritySBOMReport) {
+		// Generate SBOM using Syft
+		sbom, err := c.wrapper.ScanSBOM(ref, grype.ScanOption{
+			Format: determineFormat(scanJobKey.MediaType),
+		})
+		if err != nil {
+			return xerrors.Errorf("running sbom scan: %v", err)
+		}
 
-	harborScanReport := c.transformer.Transform(scanJobKey.MediaType, lo.FromPtr(req), scanReport)
-	if err = c.store.UpdateReport(ctx, scanJobKey, harborScanReport); err != nil {
-		return xerrors.Errorf("saving scan report: %v", err)
+		harborScanReport := c.transformer.TransformSBOM(scanJobKey.MediaType, lo.FromPtr(req), sbom)
+		if err = c.store.UpdateReport(ctx, scanJobKey, harborScanReport); err != nil {
+			return xerrors.Errorf("saving sbom report: %v", err)
+		}
+	} else {
+		// Generate vulnerability report using Grype
+		scanReport, err := c.wrapper.Scan(ref, grype.ScanOption{
+			Format: determineFormat(scanJobKey.MediaType),
+		})
+		if err != nil {
+			return xerrors.Errorf("running grype wrapper: %v", err)
+		}
+
+		harborScanReport := c.transformer.Transform(scanJobKey.MediaType, lo.FromPtr(req), scanReport)
+		if err = c.store.UpdateReport(ctx, scanJobKey, harborScanReport); err != nil {
+			return xerrors.Errorf("saving scan report: %v", err)
+		}
 	}
 
 	if err = c.store.UpdateStatus(ctx, scanJobKey, job.Finished, ""); err != nil {

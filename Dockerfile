@@ -28,6 +28,16 @@ RUN GRYPE_VERSION="0.100.0" && \
     chmod +x /usr/local/bin/grype && \
     rm -f /tmp/grype.tar.gz
 
+# Install Syft for SBOM generation
+RUN SYFT_VERSION="1.5.0" && \
+    SYFT_ARCH="amd64" && \
+    SYFT_OS="linux" && \
+    curl -L "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_${SYFT_OS}_${SYFT_ARCH}.tar.gz" -o /tmp/syft.tar.gz && \
+    tar -xzf /tmp/syft.tar.gz -C /tmp && \
+    mv /tmp/syft /usr/local/bin/syft && \
+    chmod +x /usr/local/bin/syft && \
+    rm -f /tmp/syft.tar.gz
+
 # Download Grype vulnerability database during build
 RUN /usr/local/bin/grype db update
 

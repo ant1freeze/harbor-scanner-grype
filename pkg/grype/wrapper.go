@@ -53,6 +53,7 @@ type BearerAuth struct {
 
 type Wrapper interface {
 	Scan(imageRef ImageRef, opt ScanOption) (Report, error)
+	ScanSBOM(imageRef ImageRef, opt ScanOption) (any, error)
 	GetVersion() (VersionInfo, error)
 }
 
@@ -108,7 +109,7 @@ func (w *wrapper) Scan(imageRef ImageRef, opt ScanOption) (Report, error) {
 			// Set HTTP registry settings
 			cmd.Env = append(cmd.Env, "GRYPE_REGISTRY_INSECURE_USE_HTTP=true")
 			cmd.Env = append(cmd.Env, "GRYPE_REGISTRY_INSECURE_SKIP_TLS_VERIFY=true")
-			
+
 			switch auth := imageRef.Auth.(type) {
 			case BasicAuth:
 				// Set up basic auth via environment variables
@@ -130,7 +131,7 @@ func (w *wrapper) Scan(imageRef ImageRef, opt ScanOption) (Report, error) {
 	// Use CombinedOutput to get both stdout and stderr
 	output, err := cmd.CombinedOutput()
 	exitCode := cmd.ProcessState.ExitCode()
-	
+
 	// Grype may return exit code 1 or 2 when vulnerabilities are found, but this is not an error
 	// We should only treat it as an error if there's no output or if exit code is > 2
 	if err != nil && (exitCode > 2 || len(output) == 0) {
@@ -148,7 +149,7 @@ func (w *wrapper) Scan(imageRef ImageRef, opt ScanOption) (Report, error) {
 
 	// Clean the output by removing any trailing error messages that might break JSON parsing
 	cleanOutput := w.cleanGrypeOutput(output)
-	
+
 	// Parse from output instead of file since our mock returns JSON to stdout
 	return w.parseReportFromStdout(opt.Format, cleanOutput)
 }
@@ -156,22 +157,22 @@ func (w *wrapper) Scan(imageRef ImageRef, opt ScanOption) (Report, error) {
 func (w *wrapper) cleanGrypeOutput(output []byte) []byte {
 	// Convert to string and find the last complete JSON object
 	outputStr := string(output)
-	
+
 	// Find the last occurrence of '}' which should be the end of the JSON
 	lastBrace := strings.LastIndex(outputStr, "}")
 	if lastBrace == -1 {
 		return output
 	}
-	
+
 	// Find the first occurrence of '{' to get the start of the JSON
 	firstBrace := strings.Index(outputStr, "{")
 	if firstBrace == -1 {
 		return output
 	}
-	
+
 	// Extract the JSON part (from first '{' to last '}')
 	jsonPart := outputStr[firstBrace : lastBrace+1]
-	
+
 	return []byte(jsonPart)
 }
 
@@ -249,7 +250,7 @@ func (w *wrapper) extractImageName(fullImageRef string) string {
 	// Extract image name from full registry URL
 	// Example: registry-1.docker.io:443/library/alpine@sha256:... -> alpine:latest
 	// Example: registry-1.docker.io:443/library/nginx@sha256:... -> nginx:latest
-	
+
 	// Remove registry prefix
 	if strings.Contains(fullImageRef, "/") {
 		parts := strings.Split(fullImageRef, "/")
@@ -266,7 +267,7 @@ func (w *wrapper) extractImageName(fullImageRef string) string {
 			return imagePath
 		}
 	}
-	
+
 	// Fallback to original name
 	return fullImageRef
 }
@@ -274,24 +275,24 @@ func (w *wrapper) extractImageName(fullImageRef string) string {
 func (w *wrapper) extractRegistryURL(fullImageRef string) string {
 	// Extract registry URL from full image reference
 	// Example: registry-1.docker.io:443/library/alpine@sha256:... -> registry-1.docker.io:443
-	
+
 	if strings.Contains(fullImageRef, "/") {
 		parts := strings.Split(fullImageRef, "/")
 		if len(parts) >= 2 {
 			return parts[0]
 		}
 	}
-	
+
 	return ""
 }
 
 func (w *wrapper) pullImageWithDocker(imageRef ImageRef) error {
 	// Extract image name from registry URL
 	imageName := w.extractImageName(imageRef.Name)
-	
+
 	// Try to pull image using Docker
 	cmd := exec.Command("docker", "pull", imageName)
-	
+
 	// Set up authentication if available
 	if imageRef.Auth != nil {
 		switch auth := imageRef.Auth.(type) {
@@ -302,13 +303,13 @@ func (w *wrapper) pullImageWithDocker(imageRef ImageRef) error {
 			cmd.Env = append(cmd.Env, fmt.Sprintf("DOCKER_TOKEN=%s", auth.Token))
 		}
 	}
-	
+
 	// Run docker pull command
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("docker pull failed: %v: %s", err, string(output))
 	}
-	
+
 	return nil
 }
 
@@ -454,5 +455,128 @@ func (w *wrapper) prepareVersionCmd() (*exec.Cmd, error) {
 	}
 
 	cmd := exec.Command(name, args...)
+	return cmd, nil
+}
+
+func (w *wrapper) ScanSBOM(imageRef ImageRef, opt ScanOption) (any, error) {
+	logger := slog.With(slog.String("image_ref", imageRef.Name))
+	logger.Debug("Started SBOM scanning")
+
+	// Try to pull image using Docker first if it's a registry image
+	if strings.HasPrefix(imageRef.Name, "registry:") {
+		if err := w.pullImageWithDocker(imageRef); err != nil {
+			logger.Warn("Failed to pull image with Docker, trying direct scan", slog.String("err", err.Error()))
+		} else {
+			logger.Debug("Successfully pulled image with Docker")
+		}
+	}
+
+	cmd, err := w.prepareSBOMScanCmd(imageRef, opt)
+	if err != nil {
+		return nil, xerrors.Errorf("preparing SBOM scan command: %w", err)
+	}
+
+	// Set up registry authentication via environment variables
+	if imageRef.Auth != nil {
+		registryURL := w.extractRegistryURL(imageRef.Name)
+		if registryURL != "" {
+			// Set HTTP registry settings
+			cmd.Env = append(cmd.Env, "GRYPE_REGISTRY_INSECURE_USE_HTTP=true")
+			cmd.Env = append(cmd.Env, "GRYPE_REGISTRY_INSECURE_SKIP_TLS_VERIFY=true")
+
+			switch auth := imageRef.Auth.(type) {
+			case BasicAuth:
+				// Set up basic auth via environment variables
+				cmd.Env = append(cmd.Env, fmt.Sprintf("GRYPE_REGISTRY_AUTH_AUTHORITY=%s", registryURL))
+				cmd.Env = append(cmd.Env, fmt.Sprintf("GRYPE_REGISTRY_AUTH_USERNAME=%s", auth.Username))
+				cmd.Env = append(cmd.Env, fmt.Sprintf("GRYPE_REGISTRY_AUTH_PASSWORD=%s", auth.Password))
+			case BearerAuth:
+				// Set up bearer token auth via environment variables
+				cmd.Env = append(cmd.Env, fmt.Sprintf("GRYPE_REGISTRY_AUTH_AUTHORITY=%s", registryURL))
+				cmd.Env = append(cmd.Env, fmt.Sprintf("GRYPE_REGISTRY_AUTH_TOKEN=%s", auth.Token))
+			}
+		}
+	}
+
+	logger.Info("Exec SBOM command with args", slog.String("path", cmd.Path),
+		slog.String("args", strings.Join(cmd.Args, " ")),
+		slog.String("env", strings.Join(cmd.Env, " ")))
+
+	// Use CombinedOutput to get both stdout and stderr
+	output, err := cmd.CombinedOutput()
+	exitCode := cmd.ProcessState.ExitCode()
+
+	if err != nil && exitCode != 0 {
+		logger.Error("Running SBOM scan failed",
+			slog.String("exit_code", fmt.Sprintf("%d", exitCode)),
+			slog.String("output", string(output)),
+		)
+		return nil, fmt.Errorf("running SBOM scan: %v: %v", err, string(output))
+	}
+
+	logger.Info("Running SBOM scan finished",
+		slog.String("exit_code", fmt.Sprintf("%d", cmd.ProcessState.ExitCode())),
+		slog.String("output", string(output)),
+	)
+
+	// Parse SBOM from output
+	var sbom any
+	if err := json.Unmarshal(output, &sbom); err != nil {
+		return nil, xerrors.Errorf("sbom json decode error: %w", err)
+	}
+
+	return sbom, nil
+}
+
+func (w *wrapper) prepareSBOMScanCmd(imageRef ImageRef, opt ScanOption) (*exec.Cmd, error) {
+	// Use Syft for SBOM generation instead of Grype
+	args := []string{
+		imageRef.Name,
+		"--output", string(opt.Format),
+	}
+
+	name, err := w.ambassador.LookPath("syft")
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command(name, args...)
+	cmd.Env = w.ambassador.Environ()
+
+	// Add Syft-specific environment variables for insecure registries
+	cmd.Env = append(cmd.Env, "SYFT_REGISTRY_INSECURE_SKIP_TLS_VERIFY=true")
+	cmd.Env = append(cmd.Env, "SYFT_REGISTRY_INSECURE_USE_HTTP=true")
+
+	// Set up registry authentication for Syft
+	if imageRef.Auth != nil {
+		registryURL := w.extractRegistryURL(imageRef.Name)
+		if registryURL != "" {
+			switch auth := imageRef.Auth.(type) {
+			case BasicAuth:
+				// Set up basic auth via environment variables for Syft
+				cmd.Env = append(cmd.Env, fmt.Sprintf("SYFT_REGISTRY_AUTH_AUTHORITY=%s", registryURL))
+				cmd.Env = append(cmd.Env, fmt.Sprintf("SYFT_REGISTRY_AUTH_USERNAME=%s", auth.Username))
+				cmd.Env = append(cmd.Env, fmt.Sprintf("SYFT_REGISTRY_AUTH_PASSWORD=%s", auth.Password))
+			case BearerAuth:
+				// Set up bearer token auth via environment variables for Syft
+				cmd.Env = append(cmd.Env, fmt.Sprintf("SYFT_REGISTRY_AUTH_AUTHORITY=%s", registryURL))
+				cmd.Env = append(cmd.Env, fmt.Sprintf("SYFT_REGISTRY_AUTH_TOKEN=%s", auth.Token))
+			}
+		}
+	}
+
+	switch a := imageRef.Auth.(type) {
+	case NoAuth:
+	case BasicAuth:
+		cmd.Env = append(cmd.Env,
+			fmt.Sprintf("SYFT_REGISTRY_USERNAME=%s", a.Username),
+			fmt.Sprintf("SYFT_REGISTRY_PASSWORD=%s", a.Password))
+	case BearerAuth:
+		cmd.Env = append(cmd.Env,
+			fmt.Sprintf("SYFT_REGISTRY_TOKEN=%s", a.Token))
+	default:
+		return nil, fmt.Errorf("invalid auth type %T", a)
+	}
+
 	return cmd, nil
 }
