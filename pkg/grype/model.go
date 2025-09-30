@@ -25,7 +25,7 @@ type Vulnerability struct {
 	Description            string                 `json:"description"`
 	Cvss                   []Cvss                 `json:"cvss"`
 	Fix                    Fix                    `json:"fix"`
-	Advisories             []string               `json:"advisories"`
+	Advisories             []interface{}          `json:"advisories"`
 	EPSS                   []EPSS                 `json:"epss,omitempty"` // Array in Grype 0.100.0
 	RelatedVulnerabilities []RelatedVulnerability `json:"relatedVulnerabilities,omitempty"`
 }
