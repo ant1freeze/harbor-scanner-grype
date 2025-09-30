@@ -46,14 +46,17 @@ RUN chmod +x /home/scanner/bin/scanner-grype && \
     chmod +x /usr/local/bin/update-grype-db.sh && \
     chmod +x /usr/local/bin/start.sh && \
     chown -R scanner:scanner /home/scanner && \
+    mkdir -p /var/log && \
+    touch /var/log/grype-update.log && \
+    chown scanner:scanner /var/log/grype-update.log && \
     echo "0 0 * * * /usr/local/bin/update-grype-db.sh >> /var/log/grype-update.log 2>&1" | crontab -
 
 # Set environment variables
 ENV GRYPE_VERSION=latest
 ENV PATH="/home/scanner/bin:${PATH}"
 
-# Switch to scanner user
-USER scanner
+# Keep root user for cron to work properly
+# USER scanner
 
 # Set working directory
 WORKDIR /home/scanner

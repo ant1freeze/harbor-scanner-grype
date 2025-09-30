@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  grype-adapter:
+    image: hamster5133/harbor-scanner-grype:latest
+    container_name: grype-adapter
+    ports:
+      - "8090:8090"
+    environment:
+      - SCANNER_REDIS_URL=redis://redis:6379
+    networks:
+      - harbor_harbor
+    restart: unless-stopped
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/api/v1/metadata"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis service (if not already provided by Harbor)
+  redis:
+    image: redis:7-alpine
+    container_name: grype-redis
+    networks:
+      - harbor_harbor
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+networks:
+  harbor_harbor:
+    external: true
+
+volumes:
+  redis_data:
