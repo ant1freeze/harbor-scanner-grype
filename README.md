@@ -48,7 +48,7 @@ services:
   harbor-scanner-grype:
     image: harbor-scanner-grype:latest
     ports:
-      - "8080:8080"
+      - "8090:8090"
     environment:
       - SCANNER_REDIS_URL=redis://redis:6379
     depends_on:
@@ -61,7 +61,7 @@ services:
 
 1. In Harbor UI, go to **Administration** → **Interrogation Services** → **Scanners**
 2. Click **New Scanner**
-3. Enter the scanner endpoint: `http://your-scanner-host:8080`
+3. Enter the scanner endpoint: `http://your-scanner-host:8090`
 4. Test the connection and save
 
 ## Configuration
@@ -71,7 +71,7 @@ services:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `SCANNER_REDIS_URL` | Redis connection URL | `redis://localhost:6379` |
-| `SCANNER_API_SERVER_ADDR` | API server address | `:8080` |
+| `SCANNER_API_SERVER_ADDR` | API server address | `:8090` |
 | `SCANNER_GRYPE_CACHE_DIR` | Grype cache directory | `/home/scanner/.cache/grype` |
 | `SCANNER_GRYPE_DEBUG_MODE` | Enable debug mode | `false` |
 | `SCANNER_GRYPE_SEVERITY` | Severity levels to scan | `Unknown,Low,Medium,High,Critical` |

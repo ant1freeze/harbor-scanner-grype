@@ -59,7 +59,7 @@ USER scanner
 WORKDIR /home/scanner
 
 # Expose port
-EXPOSE 8080
+EXPOSE 8090
 
 # Run the application with cron
 ENTRYPOINT ["/usr/local/bin/start.sh"]

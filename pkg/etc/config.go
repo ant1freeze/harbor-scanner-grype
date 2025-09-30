@@ -48,7 +48,7 @@ type Grype struct {
 }
 
 type API struct {
-	Addr           string        `env:"SCANNER_API_SERVER_ADDR" envDefault:":8080"`
+	Addr           string        `env:"SCANNER_API_SERVER_ADDR" envDefault:":8090"`
 	TLSCertificate string        `env:"SCANNER_API_SERVER_TLS_CERTIFICATE"`
 	TLSKey         string        `env:"SCANNER_API_SERVER_TLS_KEY"`
 	ClientCAs      []string      `env:"SCANNER_API_SERVER_CLIENT_CAS"`
