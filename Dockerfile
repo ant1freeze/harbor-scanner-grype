@@ -54,6 +54,7 @@ RUN chmod +x /home/scanner/bin/scanner-grype && \
 # Set environment variables
 ENV GRYPE_VERSION=latest
 ENV PATH="/home/scanner/bin:${PATH}"
+ENV SCANNER_LOG_LEVEL=info
 
 # Keep root user for cron to work properly
 # USER scanner

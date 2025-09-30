@@ -1,7 +1,6 @@
 package etc
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -166,22 +165,15 @@ func LoadRiskConfig() (RiskConfig, error) {
 		configPath = "risk-config.yaml"
 	}
 
-	fmt.Printf("DEBUG: Loading risk config from: %s\n", configPath)
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		fmt.Printf("DEBUG: Failed to read config file: %v\n", err)
 		return config, err
 	}
 
-	fmt.Printf("DEBUG: Config file content: %s\n", string(data))
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
-		fmt.Printf("DEBUG: Failed to unmarshal config: %v\n", err)
 		return config, err
 	}
-
-	fmt.Printf("DEBUG: Loaded config: Enabled=%t, Mode=%s, Thresholds: Low=%.1f, Medium=%.1f, High=%.1f, Critical=%.1f\n",
-		config.Risk.Enabled, config.Risk.Mode, config.Risk.Thresholds.Low, config.Risk.Thresholds.Medium, config.Risk.Thresholds.High, config.Risk.Thresholds.Critical)
 	return config, nil
 }
 

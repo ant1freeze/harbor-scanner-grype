@@ -8,6 +8,7 @@ services:
       - "8090:8090"
     environment:
       - SCANNER_REDIS_URL=redis://redis:6379
+      - SCANNER_LOG_LEVEL=info
     networks:
       - harbor_harbor
     restart: unless-stopped

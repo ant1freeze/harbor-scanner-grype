@@ -39,8 +39,7 @@ func (c *SystemClock) Now() time.Time {
 
 func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequest, report grype.Report) *harbor.ScanReport {
 	// Debug: Print configuration
-	fmt.Printf("DEBUG: Transform called - Risk config: Enabled=%t, Mode=%s, Thresholds: Low=%.1f, Medium=%.1f, High=%.1f, Critical=%.1f\n",
-		t.config.Risk.Enabled, t.config.Risk.Mode, t.config.Risk.Thresholds.Low, t.config.Risk.Thresholds.Medium, t.config.Risk.Thresholds.High, t.config.Risk.Thresholds.Critical)
+	// Risk calculation configuration loaded
 
 	scanReport := &harbor.ScanReport{
 		GeneratedAt: t.clock.Now(),
@@ -63,10 +62,8 @@ func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequ
 		var severity harbor.Severity
 		var riskInfo string
 		if t.config.Risk.Enabled {
-			fmt.Printf("DEBUG: Risk calculation enabled, mode: %s, processing CVE %s\n", t.config.Risk.Mode, vuln.ID)
 			severity, riskInfo = t.calculateSeverityWithInfo(vuln)
 		} else {
-			fmt.Printf("DEBUG: Risk calculation disabled, using original Grype severity for CVE %s: %s\n", vuln.ID, vuln.Severity)
 			severity = mapGrypeSeverityToHarbor(vuln.Severity)
 			riskInfo = ""
 		}
@@ -173,14 +170,8 @@ func (t *transformer) calculateRiskBasedSeverityWithInfo(vuln grype.Vulnerabilit
 	// EPSS is in decimal format (0.006460 = 0.646%), so we multiply by 100 to get percentage
 	riskPercentage := epssScore * 100 * (cvssScore / 10.0)
 
-	// Debug logging
-	fmt.Printf("DEBUG: CVE %s - EPSS: %.6f, CVSS: %.1f, Risk: %.3f%%, Thresholds: Low=%.1f, Medium=%.1f, High=%.1f, Critical=%.1f\n",
-		vuln.ID, epssScore, cvssScore, riskPercentage,
-		t.config.Risk.Thresholds.Low, t.config.Risk.Thresholds.Medium, t.config.Risk.Thresholds.High, t.config.Risk.Thresholds.Critical)
-
 	// Determine severity based on thresholds
 	severity := t.mapRiskToSeverity(riskPercentage)
-	fmt.Printf("DEBUG: CVE %s - Calculated severity: %s\n", vuln.ID, severity)
 
 	// Create risk calculation info
 	riskInfo := fmt.Sprintf(" [RISK: %.3f%%] EPSS: %.6f%% × CVSS: %.1f ÷ 10 = %.3f%% → %s",
@@ -214,20 +205,17 @@ func (t *transformer) calculateCVSSBasedSeverityWithInfo(vuln grype.Vulnerabilit
 func (t *transformer) getEPSSScore(vuln grype.Vulnerability) float64 {
 	// Try to get EPSS from main vulnerability first
 	if len(vuln.EPSS) > 0 && vuln.EPSS[0].Score > 0 {
-		fmt.Printf("DEBUG: Found EPSS in main vulnerability %s: %.6f\n", vuln.ID, vuln.EPSS[0].Score)
 		return vuln.EPSS[0].Score
 	}
 
 	// Try to get EPSS from related vulnerabilities
 	for _, related := range vuln.RelatedVulnerabilities {
 		if len(related.EPSS) > 0 && related.EPSS[0].Score > 0 {
-			fmt.Printf("DEBUG: Found EPSS in related vulnerability %s: %.6f\n", vuln.ID, related.EPSS[0].Score)
 			return related.EPSS[0].Score
 		}
 	}
 
 	// Return default EPSS if not available
-	fmt.Printf("DEBUG: No EPSS found for %s, using default: %.6f\n", vuln.ID, t.config.Risk.Defaults.EPSS)
 	return t.config.Risk.Defaults.EPSS
 }
 

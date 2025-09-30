@@ -41,6 +41,7 @@ docker run -d \
     --name "$CONTAINER_NAME" \
     --network "$NETWORK_NAME" \
     -e SCANNER_REDIS_URL="$REDIS_URL" \
+    -e SCANNER_LOG_LEVEL=info \
     -p "$PORT:$PORT" \
     --restart unless-stopped \
     "$IMAGE_NAME"
