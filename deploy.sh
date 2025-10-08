@@ -50,7 +50,7 @@ done
 
 # Configuration
 CONTAINER_NAME="grype-adapter"
-IMAGE_NAME="hamster5133/harbor-scanner-grype:latest"
+IMAGE_NAME="ant1freeze/harbor-scanner-grype:latest"
 NETWORK_NAME="harbor_harbor"
 PORT="8090"
 REDIS_URL="redis://redis:6379"

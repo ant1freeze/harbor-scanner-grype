@@ -58,6 +58,15 @@ func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequ
 	var maxSeverity harbor.Severity
 
 	for _, vuln := range report.Vulnerabilities {
+		// Find corresponding match for this vulnerability to get package info
+		var match *grype.Match
+		for _, m := range report.Matches {
+			if m.Vulnerability.ID == vuln.ID {
+				match = &m
+				break
+			}
+		}
+
 		// Calculate severity based on configuration
 		var severity harbor.Severity
 		var riskInfo string
@@ -79,6 +88,17 @@ func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequ
 			Description: description,
 			Links:       vuln.URLs,
 			Severity:    severity,
+		}
+
+		// Fill package information if match is found
+		if match != nil {
+			vulnerability.Pkg = match.Artifact.Name
+			vulnerability.Version = match.Artifact.Version
+
+			// Set fix version from vulnerability fix information
+			if len(vuln.Fix.Versions) > 0 {
+				vulnerability.FixVersion = vuln.Fix.Versions[0]
+			}
 		}
 
 		// Track max severity

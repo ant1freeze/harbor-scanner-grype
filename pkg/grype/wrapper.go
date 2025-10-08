@@ -210,6 +210,7 @@ func (w *wrapper) parseJSONReport(reportFile io.Reader) (Report, error) {
 
 	return Report{
 		Vulnerabilities: vulnerabilities,
+		Matches:         scanReport.Matches,
 	}, nil
 }
 
@@ -227,6 +228,7 @@ func (w *wrapper) parseJSONReportFromBytes(data []byte) (Report, error) {
 
 	return Report{
 		Vulnerabilities: vulnerabilities,
+		Matches:         scanReport.Matches,
 	}, nil
 }
 

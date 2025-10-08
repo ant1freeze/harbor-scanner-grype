@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   grype-adapter:
-    image: hamster5133/harbor-scanner-grype:latest
+    image: ant1freeze/harbor-scanner-grype:latest
     container_name: grype-adapter
     ports:
       - "8090:8090"

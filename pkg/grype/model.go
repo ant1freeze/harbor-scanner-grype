@@ -109,6 +109,7 @@ type VersionInfo struct {
 type Report struct {
 	SBOM            any
 	Vulnerabilities []Vulnerability
+	Matches         []Match
 }
 
 // EPSS represents Exploit Prediction Scoring System data
