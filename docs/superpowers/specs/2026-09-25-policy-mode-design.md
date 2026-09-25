@@ -249,15 +249,16 @@ Critical, High, Medium, Low, Unknown. Уровень отчёта целиком
 
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
-| `SCANNER_RISK_ENABLED` | `true` | как сейчас: `false` — критичность самого grype |
-| `SCANNER_RISK_MODE` | `formula` | новое значение `policy`; `formula` и `cvss` остаются |
+| `SCANNER_RISK_ENABLED` | из `risk-config.yaml` (`true`) | как сейчас: `false` — критичность самого grype |
+| `SCANNER_RISK_MODE` | из `risk-config.yaml` (в образе `formula`; без файла — `cvss`) | новое значение `policy`; `formula` и `cvss` остаются. Режим из переменной или из файла приводится к нижнему регистру; при включённом расчёте риска неизвестный режим — ошибка старта |
 | `SCANNER_POLICY_CRITICAL` | `70` | порог риска для Critical |
 | `SCANNER_POLICY_HIGH` | `30` | порог риска для High |
 | `SCANNER_POLICY_MEDIUM` | `10` | порог риска для Medium |
 | | | пороги проверяются при старте: Critical > High > Medium > 0, не больше 100, с шагом 0.1 (риск сравнивается с одним знаком после точки, более мелкий шаг ничего не меняет); иначе коннектор не стартует |
+| | | пустое значение (`SCANNER_POLICY_HIGH=` в `.env`) — ошибка старта, а не значение по умолчанию: чтобы взять значение по умолчанию, строку нужно удалить; то же для `SCANNER_EXPLOITDB_*` |
 | `SCANNER_EXPLOITDB_FILE` | `/home/scanner/.cache/exploitdb/files_exploits.csv` | где лежит список Exploit-DB |
 | `SCANNER_EXPLOITDB_URL` | `https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv` | откуда его качает cron |
-| `SCANNER_EXPLOITDB_MAX_AGE` | `336h` | после этого срока в лог пишется предупреждение |
+| `SCANNER_EXPLOITDB_MAX_AGE` | `336h` | после этого срока в лог пишется предупреждение; `0` — не предупреждать, отрицательное значение — ошибка старта |
 | `SCANNER_API_KEY` | — | ключ для Harbor, обязателен |
 | `SCANNER_REGISTRY_TRUSTED_HOSTS` | пусто | реестры, для которых можно подставлять `SCANNER_REGISTRY_USERNAME/PASSWORD` |
 
