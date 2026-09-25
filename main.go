@@ -70,10 +70,14 @@ func main() {
 	// Create store
 	store := redis.NewStore(config.RedisStore, rdb)
 
-	// Create transformer. The Exploit-DB list is only read in the policy mode.
+	// Create transformer. The Exploit-DB list is only read in the policy mode. exploitWatcher is
+	// kept separately (as its concrete type) so the API handler can report the list's freshness
+	// from /api/v1/metadata; it is nil outside policy mode, which its Info method handles safely.
+	var exploitWatcher *exploitdb.Watcher
 	var exploits policy.ExploitLookup
 	if config.Risk.Risk.PolicyMode() {
-		exploits = exploitdb.NewWatcher(config.Policy.ExploitDBFile, time.Minute, config.Policy.ExploitDBMaxAge)
+		exploitWatcher = exploitdb.NewWatcher(config.Policy.ExploitDBFile, time.Minute, config.Policy.ExploitDBMaxAge)
+		exploits = exploitWatcher
 		slog.Info("Severity policy enabled",
 			slog.Float64("critical_from", config.Policy.Critical),
 			slog.Float64("high_from", config.Policy.High),
@@ -95,7 +99,7 @@ func main() {
 	worker := queue.NewWorker(config.JobQueue, rdb, controller)
 
 	// Create API handler
-	handler := v1.NewAPIHandler(buildInfo, config, enqueuer, store, grypeWrapper)
+	handler := v1.NewAPIHandler(buildInfo, config, enqueuer, store, grypeWrapper, exploitWatcher)
 
 	// Create HTTP server
 	server, err := api.NewServer(config.API, handler)
