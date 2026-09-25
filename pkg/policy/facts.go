@@ -194,11 +194,12 @@ func hasVector(m grype.Match) bool {
 }
 
 // attackVectors returns the CVSS entries rule 5 judges the attack vector by: those of the finding's
-// own record (the distro's or GitHub's) when it has at least one non-empty vector, else those of
-// its related records (NVD), as for ALAS and ELSA advisories, which carry no CVSS of their own. The
-// own record scores the flaw as it affects the package, while NVD may list several scores that
-// disagree: for CVE-2025-69720 in ncurses Debian has AV:L and NVD two AV:L and one AV:N, and a single
-// AV:N among them must not make a local flaw reachable over the network.
+// own record when it has at least one non-empty vector, else those of its related records (NVD), as
+// for ALAS and ELSA advisories and many Debian records, which carry none. The own vectors mean one
+// of two things: RHEL, SUSE, GitHub and Bitnami score the flaw themselves, while for Fedora, Alpine,
+// Echo, Debian and Alma they are usually a copy of NVD's primary score (nvd@nist.gov), so there the
+// rule prefers NVD's primary score over the secondary ones of CNAs and CISA ADP. For CVE-2025-69720
+// in ncurses, Debian's AV:L is NVD's primary score; the AV:N that no longer counts is CISA ADP's.
 func attackVectors(m grype.Match) []grype.Cvss {
 	for _, c := range m.Vulnerability.Cvss {
 		if c.Vector != "" {
