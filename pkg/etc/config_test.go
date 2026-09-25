@@ -3,6 +3,8 @@ package etc
 import (
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,7 +13,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// clearScannerEnv removes every SCANNER_* variable from the process environment for the duration
+// of the test, so tests that call GetConfig do not depend on what happens to be set in the
+// developer's (or CI's) shell. t.Setenv registers the restore; the direct os.Unsetenv makes the
+// variable actually absent, which matters because caarlos0/env treats "absent" (envDefault
+// applies) differently from "set to empty" (notEmpty fields reject it).
+func clearScannerEnv(t *testing.T) {
+	t.Helper()
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "SCANNER_") {
+			t.Setenv(k, "") // registers the restore
+			os.Unsetenv(k)
+		}
+	}
+}
+
 func TestGetConfig(t *testing.T) {
+	clearScannerEnv(t)
 	// Set some test environment variables
 	t.Setenv("SCANNER_LOG_LEVEL", "debug")
 	t.Setenv("SCANNER_GRYPE_CACHE_DIR", "/test/cache")
@@ -78,6 +96,7 @@ func TestGrypeConfigDefaults(t *testing.T) {
 }
 
 func TestPolicyDefaults(t *testing.T) {
+	clearScannerEnv(t)
 	config, err := GetConfig()
 	require.NoError(t, err)
 	assert.Equal(t, Policy{
@@ -90,56 +109,160 @@ func TestPolicyDefaults(t *testing.T) {
 }
 
 func TestRiskEnvOverridesFile(t *testing.T) {
-	t.Setenv("SCANNER_RISK_ENABLED", "true")
+	clearScannerEnv(t)
+	// Enabled defaults to true, so setting it "false" (rather than repeating the default "true")
+	// is what proves this override is actually applied.
+	t.Setenv("SCANNER_RISK_ENABLED", "false")
 	t.Setenv("SCANNER_RISK_MODE", "policy")
 	t.Setenv("SCANNER_RISK_HIGH", "60")
 	t.Setenv("SCANNER_POLICY_HIGH", "25")
 
 	config, err := GetConfig()
 	require.NoError(t, err)
-	assert.True(t, config.Risk.Risk.Enabled)
+	assert.False(t, config.Risk.Risk.Enabled)
 	assert.Equal(t, "policy", config.Risk.Risk.Mode)
 	assert.Equal(t, 60.0, config.Risk.Risk.Thresholds.High)
 	assert.Equal(t, 25.0, config.Policy.High)
 }
 
 func TestRiskModeMustBeKnown(t *testing.T) {
+	clearScannerEnv(t)
 	t.Setenv("SCANNER_RISK_MODE", "magic")
 	_, err := GetConfig()
 	assert.ErrorContains(t, err, "SCANNER_RISK_MODE")
 }
 
 func TestPolicyThresholdsMustBeOrdered(t *testing.T) {
+	clearScannerEnv(t)
 	t.Setenv("SCANNER_POLICY_HIGH", "80")
 	_, err := GetConfig()
 	assert.ErrorContains(t, err, "SCANNER_POLICY_CRITICAL")
 }
 
 func TestPolicyThresholdsMustBeValid(t *testing.T) {
-	cases := map[string]map[string]string{
-		"above 100":          {"SCANNER_POLICY_CRITICAL": "150"},
-		"zero medium":        {"SCANNER_POLICY_MEDIUM": "0"},
-		"negative medium":    {"SCANNER_POLICY_MEDIUM": "-5"},
-		"two decimals":       {"SCANNER_POLICY_HIGH": "30.05"},
-		"not a number":       {"SCANNER_POLICY_HIGH": "NaN"},
-		"equal high, medium": {"SCANNER_POLICY_HIGH": "10"},
+	cases := []struct {
+		name    string
+		env     map[string]string
+		wantErr string
+	}{
+		{"above 100", map[string]string{"SCANNER_POLICY_CRITICAL": "150"}, "SCANNER_POLICY_"},
+		{"zero medium", map[string]string{"SCANNER_POLICY_MEDIUM": "0"}, "SCANNER_POLICY_"},
+		{"negative medium", map[string]string{"SCANNER_POLICY_MEDIUM": "-5"}, "SCANNER_POLICY_"},
+		{"two decimals", map[string]string{"SCANNER_POLICY_HIGH": "30.05"}, "at most one decimal"},
+		{"more precision than one decimal", map[string]string{"SCANNER_POLICY_HIGH": "30.00000000001"}, "at most one decimal"},
+		{"not a number", map[string]string{"SCANNER_POLICY_HIGH": "NaN"}, "SCANNER_POLICY_"},
+		{"equal high, medium", map[string]string{"SCANNER_POLICY_HIGH": "10"}, "SCANNER_POLICY_"},
 	}
-	for name, env := range cases {
-		t.Run(name, func(t *testing.T) {
-			for k, v := range env {
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			clearScannerEnv(t)
+			for k, v := range c.env {
 				t.Setenv(k, v)
 			}
 			_, err := GetConfig()
-			assert.ErrorContains(t, err, "SCANNER_POLICY_")
+			assert.ErrorContains(t, err, c.wantErr)
 		})
 	}
 }
 
 func TestPolicyThresholdsAcceptOneDecimalAnd100(t *testing.T) {
+	clearScannerEnv(t)
 	t.Setenv("SCANNER_POLICY_CRITICAL", "100")
 	t.Setenv("SCANNER_POLICY_HIGH", "12.5")
 	t.Setenv("SCANNER_POLICY_MEDIUM", "0.1")
 	config, err := GetConfig()
 	require.NoError(t, err)
 	assert.Equal(t, 12.5, config.Policy.High)
+}
+
+func TestPolicyHighBlankErrors(t *testing.T) {
+	clearScannerEnv(t)
+	t.Setenv("SCANNER_POLICY_HIGH", "")
+	_, err := GetConfig()
+	assert.ErrorContains(t, err, "SCANNER_POLICY_HIGH")
+	assert.ErrorContains(t, err, "should not be empty")
+}
+
+func TestExploitDBMaxAgeValidation(t *testing.T) {
+	t.Run("blank errors", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_EXPLOITDB_MAX_AGE", "")
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "SCANNER_EXPLOITDB_MAX_AGE")
+		assert.ErrorContains(t, err, "should not be empty")
+	})
+
+	t.Run("negative errors", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_EXPLOITDB_MAX_AGE", "-1h")
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "SCANNER_EXPLOITDB_MAX_AGE")
+	})
+
+	t.Run("zero is accepted", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_EXPLOITDB_MAX_AGE", "0")
+		config, err := GetConfig()
+		require.NoError(t, err)
+		assert.Equal(t, time.Duration(0), config.Policy.ExploitDBMaxAge)
+	})
+}
+
+// chdirToTempRiskConfig writes risk-config.yaml into a fresh temp dir and changes the process's
+// working directory into it for the rest of the test, restoring the previous directory in
+// t.Cleanup. Go 1.22 (this project's toolchain) has no t.Chdir. LoadRiskConfig looks at
+// /app/risk-config.yaml first; that path does not exist on a dev or CI machine, so it falls back
+// to the relative "risk-config.yaml", resolved against the working directory set here.
+func chdirToTempRiskConfig(t *testing.T, yamlContent string) {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "risk-config.yaml"), []byte(yamlContent), 0644))
+
+	oldWd, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(dir))
+	t.Cleanup(func() {
+		assert.NoError(t, os.Chdir(oldWd))
+	})
+}
+
+func TestRiskConfigYAMLPrecedence(t *testing.T) {
+	chdirToTempRiskConfig(t, `risk:
+  mode: "Formula"
+  enabled: true
+  thresholds: {critical: 85, high: 70, medium: 50, low: 0.01}
+`)
+
+	t.Run("mode is normalised from the file", func(t *testing.T) {
+		clearScannerEnv(t)
+		config, err := GetConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "formula", config.Risk.Risk.Mode)
+		assert.Equal(t, 70.0, config.Risk.Risk.Thresholds.High)
+	})
+
+	t.Run("SCANNER_RISK_HIGH overrides the file", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_RISK_HIGH", "60")
+		config, err := GetConfig()
+		require.NoError(t, err)
+		assert.Equal(t, 60.0, config.Risk.Risk.Thresholds.High)
+	})
+
+	t.Run("SCANNER_RISK_MODE overrides the file", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_RISK_MODE", "policy")
+		config, err := GetConfig()
+		require.NoError(t, err)
+		assert.Equal(t, "policy", config.Risk.Risk.Mode)
+	})
+}
+
+func TestRiskConfigDisabledWithoutModeLoadsOK(t *testing.T) {
+	chdirToTempRiskConfig(t, `risk:
+  enabled: false
+`)
+	clearScannerEnv(t)
+	_, err := GetConfig()
+	require.NoError(t, err)
 }

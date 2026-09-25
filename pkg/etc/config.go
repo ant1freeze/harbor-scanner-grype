@@ -87,11 +87,12 @@ type RedisPool struct {
 
 // Policy configures SCANNER_RISK_MODE=policy.
 type Policy struct {
-	Critical        float64       `env:"SCANNER_POLICY_CRITICAL" envDefault:"70"`
-	High            float64       `env:"SCANNER_POLICY_HIGH" envDefault:"30"`
-	Medium          float64       `env:"SCANNER_POLICY_MEDIUM" envDefault:"10"`
-	ExploitDBFile   string        `env:"SCANNER_EXPLOITDB_FILE" envDefault:"/home/scanner/.cache/exploitdb/files_exploits.csv"`
-	ExploitDBMaxAge time.Duration `env:"SCANNER_EXPLOITDB_MAX_AGE" envDefault:"336h"`
+	Critical      float64 `env:"SCANNER_POLICY_CRITICAL,notEmpty" envDefault:"70"`
+	High          float64 `env:"SCANNER_POLICY_HIGH,notEmpty" envDefault:"30"`
+	Medium        float64 `env:"SCANNER_POLICY_MEDIUM,notEmpty" envDefault:"10"`
+	ExploitDBFile string  `env:"SCANNER_EXPLOITDB_FILE,notEmpty" envDefault:"/home/scanner/.cache/exploitdb/files_exploits.csv"`
+	// ExploitDBMaxAge is how stale the Exploit-DB list may be before a warning; 0 turns the stale-list warning off.
+	ExploitDBMaxAge time.Duration `env:"SCANNER_EXPLOITDB_MAX_AGE,notEmpty" envDefault:"336h"`
 }
 
 // validate checks the ladder thresholds: 0 < Medium < High < Critical <= 100, each with at most one
@@ -110,9 +111,12 @@ func (p Policy) validate() error {
 		{"SCANNER_POLICY_MEDIUM", p.Medium},
 	}
 	for _, t := range thresholds {
-		if tenths := t.value * 10; math.Abs(tenths-math.Round(tenths)) > 1e-9 {
+		if t.value != math.Round(t.value*10)/10 {
 			return fmt.Errorf("%s must have at most one decimal, since the risk is compared with one decimal; got %v", t.name, t.value)
 		}
+	}
+	if p.ExploitDBMaxAge < 0 {
+		return fmt.Errorf("SCANNER_EXPLOITDB_MAX_AGE must not be negative, got %v", p.ExploitDBMaxAge)
 	}
 	return nil
 }
@@ -140,11 +144,49 @@ type RiskConfig struct {
 }
 
 type RiskConfigData struct {
-	Mode           string         `yaml:"mode"`            // "formula" or "cvss"
+	Mode           string         `yaml:"mode"`            // "formula", "cvss" or "policy"
 	Thresholds     RiskThresholds `yaml:"thresholds"`      // Used when mode = "formula"
 	CVSSThresholds CVSSThresholds `yaml:"cvss_thresholds"` // Used when mode = "cvss"
 	Defaults       RiskDefaults   `yaml:"defaults"`
 	Enabled        bool           `yaml:"enabled"`
+}
+
+// validate normalises the mode combined from risk-config.yaml and SCANNER_RISK_* overrides, then
+// checks it. When risk is disabled, the mode and the ten numbers below are never read, so neither
+// is checked: a config that used to start (e.g. no mode set, or a differently-cased mode, while
+// disabled) must keep starting.
+func (r *RiskConfigData) validate() error {
+	r.Mode = strings.ToLower(strings.TrimSpace(r.Mode))
+	if !r.Enabled {
+		return nil
+	}
+	switch r.Mode {
+	case "formula", "cvss", "policy":
+	default:
+		return fmt.Errorf("risk mode %q (SCANNER_RISK_MODE or risk.mode in risk-config.yaml) must be formula, cvss or policy", r.Mode)
+	}
+	numbers := []struct {
+		env   string
+		yaml  string
+		value float64
+	}{
+		{"SCANNER_RISK_CRITICAL", "risk.thresholds.critical", r.Thresholds.Critical},
+		{"SCANNER_RISK_HIGH", "risk.thresholds.high", r.Thresholds.High},
+		{"SCANNER_RISK_MEDIUM", "risk.thresholds.medium", r.Thresholds.Medium},
+		{"SCANNER_RISK_LOW", "risk.thresholds.low", r.Thresholds.Low},
+		{"SCANNER_RISK_CVSS_CRITICAL", "risk.cvss_thresholds.critical", r.CVSSThresholds.Critical},
+		{"SCANNER_RISK_CVSS_HIGH", "risk.cvss_thresholds.high", r.CVSSThresholds.High},
+		{"SCANNER_RISK_CVSS_MEDIUM", "risk.cvss_thresholds.medium", r.CVSSThresholds.Medium},
+		{"SCANNER_RISK_CVSS_LOW", "risk.cvss_thresholds.low", r.CVSSThresholds.Low},
+		{"SCANNER_RISK_DEFAULT_EPSS", "risk.defaults.epss", r.Defaults.EPSS},
+		{"SCANNER_RISK_DEFAULT_CVSS", "risk.defaults.cvss", r.Defaults.CVSS},
+	}
+	for _, n := range numbers {
+		if math.IsNaN(n.value) || math.IsInf(n.value, 0) {
+			return fmt.Errorf("%s (or %s in risk-config.yaml) must be a finite number, got %v", n.env, n.yaml, n.value)
+		}
+	}
+	return nil
 }
 
 type RiskThresholds struct {
@@ -189,6 +231,9 @@ func GetConfig() (Config, error) {
 	}
 
 	if err := applyRiskEnv(&cfg.Risk.Risk); err != nil {
+		return cfg, err
+	}
+	if err := cfg.Risk.Risk.validate(); err != nil {
 		return cfg, err
 	}
 	if err := cfg.Policy.validate(); err != nil {
@@ -258,11 +303,7 @@ func applyRiskEnv(r *RiskConfigData) error {
 		}
 		*n.dst = x
 	}
-	switch r.Mode {
-	case "formula", "cvss", "policy":
-		return nil
-	}
-	return fmt.Errorf("SCANNER_RISK_MODE: unknown mode %q, expected formula, cvss or policy", r.Mode)
+	return nil
 }
 
 func getDefaultRiskConfig() RiskConfig {
