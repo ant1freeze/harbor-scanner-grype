@@ -109,7 +109,7 @@ func main() {
 	enqueuer := queue.NewEnqueuer(config.JobQueue, rdb, store, config.Harbor.PollTimeout)
 
 	// Create worker
-	worker := queue.NewWorker(config.JobQueue, rdb, controller)
+	worker := queue.NewWorker(config.JobQueue, rdb, store, controller, config.Harbor.PollTimeout)
 
 	// Create API handler
 	handler := v1.NewAPIHandler(buildInfo, config, enqueuer, store, grypeWrapper, exploitWatcher)

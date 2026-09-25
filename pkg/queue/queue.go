@@ -40,8 +40,3 @@ func imageName(j Job) string {
 	}
 	return j.Args.ScanRequest.Artifact.Repository + "@" + j.Args.ScanRequest.Artifact.Digest
 }
-
-// redisJobChannel is used by the Pub/Sub worker until Task 4 replaces it.
-func redisJobChannel(namespace string) string {
-	return namespace + ":jobs"
-}
