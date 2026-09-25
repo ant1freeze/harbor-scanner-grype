@@ -134,15 +134,17 @@ func TestMalware(t *testing.T) {
 }
 
 // TestMalwareKnownAdvisories covers advisories whose titles match none of malwarePrefixes: they are
-// only caught through knownMalwareAdvisories, by GHSA id or by CVE alias.
+// only caught through knownMalwareAdvisories, looked up by the finding's own vulnerability id
+// (f.vuln.ID) — never by the CVEs it merely mentions.
 func TestMalwareKnownAdvisories(t *testing.T) {
 	restClient := facts{vuln: grype.Vulnerability{ID: "GHSA-333g-rpr4-7hxq", Description: "rest-client Gem Contains Malicious Code"}}
 	ok, source := restClient.malware()
 	assert.True(t, ok)
 	assert.Equal(t, "github", source)
 
-	// With SCANNER_GRYPE_BY_CVE=true grype reports the CVE id instead of the GHSA id; collectFacts
-	// fills f.cves from the match so the CVE alias is what malware() finds.
+	// With SCANNER_GRYPE_BY_CVE=true grype reports the CVE id as the finding's own vulnerability id
+	// instead of the GHSA id; knownMalwareAdvisories carries that CVE alias too, so the same
+	// f.vuln.ID lookup still matches.
 	byCVE := grype.Match{Vulnerability: grype.Vulnerability{ID: "CVE-2019-15224", Description: "rest-client Gem Contains Malicious Code"}}
 	f := collectFacts(byCVE, nil)
 	ok, source = f.malware()
@@ -152,6 +154,17 @@ func TestMalwareKnownAdvisories(t *testing.T) {
 	notListed := facts{vuln: grype.Vulnerability{ID: "GHSA-qqqq-qqqq-qqqq", Description: "An ordinary vulnerability in some package"}}
 	ok, _ = notListed.malware()
 	assert.False(t, ok, "a GHSA id absent from knownMalwareAdvisories is not malware")
+
+	// A distro advisory that merely mentions a malware CVE (e.g. via EPSS data on a bundled CVE) is
+	// not itself the malicious artifact: only the finding's own id is looked up, not f.cves.
+	distro := grype.Match{Vulnerability: grype.Vulnerability{
+		ID:          "DSA-9999-1",
+		Description: "An ordinary vulnerability in some package",
+		EPSS:        []grype.EPSS{{CVE: "CVE-2019-15224"}},
+	}}
+	f = collectFacts(distro, nil)
+	ok, _ = f.malware()
+	assert.False(t, ok, "mentioning a malware CVE does not make the finding itself malware")
 }
 
 func TestKnownMalwareAdvisoriesKeysAreWellFormed(t *testing.T) {

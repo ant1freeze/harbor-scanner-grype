@@ -48,9 +48,9 @@ var malwarePrefixes = []string{
 }
 
 // malware reports whether the finding is a malicious package rather than a flaw: GitHub publishes
-// such advisories with one of the fixed openings in malwarePrefixes; knownMalwareAdvisories lists
-// the advisories whose titles don't follow any of those openings; and CWE-506 is embedded malicious
-// code.
+// such advisories with one of the fixed openings in malwarePrefixes; knownMalwareAdvisories lists,
+// by the vulnerability id grype reports, the advisories whose titles don't follow any of those
+// openings; and CWE-506 is embedded malicious code.
 func (f facts) malware() (bool, string) {
 	for _, p := range malwarePrefixes {
 		if strings.HasPrefix(f.vuln.Description, p) {
@@ -59,11 +59,6 @@ func (f facts) malware() (bool, string) {
 	}
 	if knownMalwareAdvisories[f.vuln.ID] {
 		return true, "github"
-	}
-	for _, cve := range f.cves {
-		if knownMalwareAdvisories[cve] {
-			return true, "github"
-		}
 	}
 	for _, c := range f.vuln.CWEs {
 		if c.CWE == "CWE-506" {
