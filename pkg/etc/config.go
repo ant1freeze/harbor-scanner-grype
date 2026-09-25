@@ -1,8 +1,11 @@
 package etc
 
 import (
+	"fmt"
 	"log/slog"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +26,7 @@ type Config struct {
 	JobQueue   JobQueue
 	RedisPool  RedisPool
 	Risk       RiskConfig
+	Policy     Policy
 }
 
 type Grype struct {
@@ -79,6 +83,38 @@ type RedisPool struct {
 	ConnectionTimeout time.Duration `env:"SCANNER_REDIS_POOL_CONNECTION_TIMEOUT" envDefault:"1s"`
 	ReadTimeout       time.Duration `env:"SCANNER_REDIS_POOL_READ_TIMEOUT" envDefault:"1s"`
 	WriteTimeout      time.Duration `env:"SCANNER_REDIS_POOL_WRITE_TIMEOUT" envDefault:"1s"`
+}
+
+// Policy configures SCANNER_RISK_MODE=policy.
+type Policy struct {
+	Critical        float64       `env:"SCANNER_POLICY_CRITICAL" envDefault:"70"`
+	High            float64       `env:"SCANNER_POLICY_HIGH" envDefault:"30"`
+	Medium          float64       `env:"SCANNER_POLICY_MEDIUM" envDefault:"10"`
+	ExploitDBFile   string        `env:"SCANNER_EXPLOITDB_FILE" envDefault:"/home/scanner/.cache/exploitdb/files_exploits.csv"`
+	ExploitDBMaxAge time.Duration `env:"SCANNER_EXPLOITDB_MAX_AGE" envDefault:"336h"`
+}
+
+// validate checks the ladder thresholds: 0 < Medium < High < Critical <= 100, each with at most one
+// decimal, because the risk is compared as it is shown, with one decimal. NaN fails the comparisons.
+func (p Policy) validate() error {
+	if !(p.Critical > p.High && p.High > p.Medium && p.Medium > 0 && p.Critical <= 100) {
+		return fmt.Errorf("SCANNER_POLICY_CRITICAL > SCANNER_POLICY_HIGH > SCANNER_POLICY_MEDIUM > 0 and SCANNER_POLICY_CRITICAL <= 100 are required, got %v, %v, %v",
+			p.Critical, p.High, p.Medium)
+	}
+	thresholds := []struct {
+		name  string
+		value float64
+	}{
+		{"SCANNER_POLICY_CRITICAL", p.Critical},
+		{"SCANNER_POLICY_HIGH", p.High},
+		{"SCANNER_POLICY_MEDIUM", p.Medium},
+	}
+	for _, t := range thresholds {
+		if tenths := t.value * 10; math.Abs(tenths-math.Round(tenths)) > 1e-9 {
+			return fmt.Errorf("%s must have at most one decimal, since the risk is compared with one decimal; got %v", t.name, t.value)
+		}
+	}
+	return nil
 }
 
 func LogLevel() slog.Level {
@@ -152,6 +188,13 @@ func GetConfig() (Config, error) {
 		cfg.Risk = riskConfig
 	}
 
+	if err := applyRiskEnv(&cfg.Risk.Risk); err != nil {
+		return cfg, err
+	}
+	if err := cfg.Policy.validate(); err != nil {
+		return cfg, err
+	}
+
 	return cfg, nil
 }
 
@@ -175,6 +218,51 @@ func LoadRiskConfig() (RiskConfig, error) {
 		return config, err
 	}
 	return config, nil
+}
+
+// applyRiskEnv lets SCANNER_RISK_* variables override risk-config.yaml, as the deployed image does.
+func applyRiskEnv(r *RiskConfigData) error {
+	if v := strings.TrimSpace(os.Getenv("SCANNER_RISK_ENABLED")); v != "" {
+		enabled, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("SCANNER_RISK_ENABLED: %w", err)
+		}
+		r.Enabled = enabled
+	}
+	if v := strings.TrimSpace(os.Getenv("SCANNER_RISK_MODE")); v != "" {
+		r.Mode = strings.ToLower(v)
+	}
+	numbers := []struct {
+		name string
+		dst  *float64
+	}{
+		{"SCANNER_RISK_CRITICAL", &r.Thresholds.Critical},
+		{"SCANNER_RISK_HIGH", &r.Thresholds.High},
+		{"SCANNER_RISK_MEDIUM", &r.Thresholds.Medium},
+		{"SCANNER_RISK_LOW", &r.Thresholds.Low},
+		{"SCANNER_RISK_CVSS_CRITICAL", &r.CVSSThresholds.Critical},
+		{"SCANNER_RISK_CVSS_HIGH", &r.CVSSThresholds.High},
+		{"SCANNER_RISK_CVSS_MEDIUM", &r.CVSSThresholds.Medium},
+		{"SCANNER_RISK_CVSS_LOW", &r.CVSSThresholds.Low},
+		{"SCANNER_RISK_DEFAULT_EPSS", &r.Defaults.EPSS},
+		{"SCANNER_RISK_DEFAULT_CVSS", &r.Defaults.CVSS},
+	}
+	for _, n := range numbers {
+		v := strings.TrimSpace(os.Getenv(n.name))
+		if v == "" {
+			continue
+		}
+		x, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("%s: %w", n.name, err)
+		}
+		*n.dst = x
+	}
+	switch r.Mode {
+	case "formula", "cvss", "policy":
+		return nil
+	}
+	return fmt.Errorf("SCANNER_RISK_MODE: unknown mode %q, expected formula, cvss or policy", r.Mode)
 }
 
 func getDefaultRiskConfig() RiskConfig {
