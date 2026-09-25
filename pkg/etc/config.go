@@ -42,8 +42,8 @@ type Grype struct {
 	SkipUpdate     bool          `env:"SCANNER_GRYPE_SKIP_UPDATE" envDefault:"false"`
 	OfflineScan    bool          `env:"SCANNER_GRYPE_OFFLINE_SCAN" envDefault:"false"`
 	Insecure       bool          `env:"SCANNER_GRYPE_INSECURE" envDefault:"false"`
-	Timeout        time.Duration `env:"SCANNER_GRYPE_TIMEOUT" envDefault:"15m"`
-	TmpDir         string        `env:"SCANNER_GRYPE_TMP_DIR" envDefault:"/tmp/scanner"`
+	Timeout        time.Duration `env:"SCANNER_GRYPE_TIMEOUT,notEmpty" envDefault:"15m"`
+	TmpDir         string        `env:"SCANNER_GRYPE_TMP_DIR,notEmpty" envDefault:"/tmp/scanner"`
 	ConfigFile     string        `env:"SCANNER_GRYPE_CONFIG_FILE"`
 	FailOnSeverity string        `env:"SCANNER_GRYPE_FAIL_ON_SEVERITY"`
 	AddCPEsIfNone  bool          `env:"SCANNER_GRYPE_ADD_CPES_IF_NONE" envDefault:"false"`
@@ -70,6 +70,26 @@ func (c *API) IsTLSEnabled() bool {
 	return c.TLSCertificate != "" && c.TLSKey != ""
 }
 
+// String redacts Key so API never appears with its secret in a log line or error message.
+func (c API) String() string {
+	type redacted API
+	cp := redacted(c)
+	if cp.Key != "" {
+		cp.Key = "***"
+	}
+	return fmt.Sprintf("%+v", cp)
+}
+
+// LogValue redacts Key the same way as String, for slog.
+func (c API) LogValue() slog.Value {
+	type redacted API
+	cp := redacted(c)
+	if cp.Key != "" {
+		cp.Key = "***"
+	}
+	return slog.AnyValue(cp)
+}
+
 type RedisStore struct {
 	Namespace  string        `env:"SCANNER_STORE_REDIS_NAMESPACE" envDefault:"harbor.scanner.grype:data-store"`
 	ScanJobTTL time.Duration `env:"SCANNER_STORE_REDIS_SCAN_JOB_TTL" envDefault:"1h"`
@@ -88,52 +108,6 @@ type RedisPool struct {
 	ConnectionTimeout time.Duration `env:"SCANNER_REDIS_POOL_CONNECTION_TIMEOUT" envDefault:"5s"`
 	ReadTimeout       time.Duration `env:"SCANNER_REDIS_POOL_READ_TIMEOUT" envDefault:"5s"`
 	WriteTimeout      time.Duration `env:"SCANNER_REDIS_POOL_WRITE_TIMEOUT" envDefault:"5s"`
-}
-
-// Registry configures how the scanner reaches the registry named in Harbor's scan request.
-type Registry struct {
-	HostMap               HostMap  `env:"SCANNER_REGISTRY_HOST_MAP"`
-	InsecureUseHTTP       bool     `env:"SCANNER_REGISTRY_INSECURE_USE_HTTP" envDefault:"true"`
-	InsecureSkipTLSVerify bool     `env:"SCANNER_REGISTRY_INSECURE_SKIP_TLS_VERIFY" envDefault:"true"`
-	Username              string   `env:"SCANNER_REGISTRY_USERNAME"`
-	Password              string   `env:"SCANNER_REGISTRY_PASSWORD"`
-	TrustedHosts          []string `env:"SCANNER_REGISTRY_TRUSTED_HOSTS" envSeparator:","`
-}
-
-// Trusted reports whether the configured account may be sent to host.
-func (r Registry) Trusted(host string) bool {
-	if host == "" {
-		return false
-	}
-	for _, trusted := range r.TrustedHosts {
-		if strings.EqualFold(strings.TrimSpace(trusted), host) {
-			return true
-		}
-	}
-	return false
-}
-
-// HostMap maps a registry host from Harbor's scan request to the host[:port] the scanner connects
-// to instead, from "host=target" pairs such as "localhost=nginx:8080,harbor.corp.local=harbor.corp.local:443".
-type HostMap map[string]string
-
-// UnmarshalText parses SCANNER_REGISTRY_HOST_MAP. Hosts are matched case-insensitively.
-func (m *HostMap) UnmarshalText(text []byte) error {
-	parsed := HostMap{}
-	for _, pair := range strings.Split(string(text), ",") {
-		pair = strings.TrimSpace(pair)
-		if pair == "" {
-			continue
-		}
-		host, target, ok := strings.Cut(pair, "=")
-		host, target = strings.TrimSpace(host), strings.TrimSpace(target)
-		if !ok || host == "" || target == "" {
-			return fmt.Errorf("SCANNER_REGISTRY_HOST_MAP: %q is not host=target", pair)
-		}
-		parsed[strings.ToLower(host)] = target
-	}
-	*m = parsed
-	return nil
 }
 
 // Policy configures SCANNER_RISK_MODE=policy.
@@ -287,8 +261,20 @@ func GetConfig() (Config, error) {
 		return cfg, err
 	}
 
-	if strings.TrimSpace(cfg.API.Key) == "" {
+	cfg.API.Key = strings.TrimSpace(cfg.API.Key)
+	if cfg.API.Key == "" {
 		return cfg, errors.New("SCANNER_API_KEY is required: set the same key in Harbor's scanner registration (Authorization: Bearer or API Key)")
+	}
+	if len(cfg.API.Key) < 16 {
+		return cfg, errors.New("SCANNER_API_KEY must be at least 16 characters; generate one with: openssl rand -hex 32")
+	}
+
+	if cfg.Grype.Timeout <= 0 {
+		return cfg, fmt.Errorf("SCANNER_GRYPE_TIMEOUT must be positive, got %s", cfg.Grype.Timeout)
+	}
+
+	if err := cfg.Registry.validate(); err != nil {
+		return cfg, err
 	}
 
 	if _, ok := os.LookupEnv("SCANNER_GRYPE_DEBUG_MODE"); !ok {

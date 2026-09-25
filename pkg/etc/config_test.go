@@ -1,6 +1,8 @@
 package etc
 
 import (
+	"bytes"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -27,7 +29,7 @@ func clearScannerEnv(t *testing.T) {
 			os.Unsetenv(k)
 		}
 	}
-	t.Setenv("SCANNER_API_KEY", "test-key")
+	t.Setenv("SCANNER_API_KEY", "test-key-0123456789")
 }
 
 func TestGetConfig(t *testing.T) {
@@ -78,6 +80,7 @@ func TestAPIIsTLSEnabled(t *testing.T) {
 }
 
 func TestGrypeConfigDefaults(t *testing.T) {
+	clearScannerEnv(t)
 	var config Grype
 	require.NoError(t, env.Parse(&config))
 
@@ -430,32 +433,6 @@ func TestRegistryDefaults(t *testing.T) {
 	assert.Equal(t, 5*time.Second, config.RedisPool.ConnectionTimeout)
 }
 
-func TestHostMap(t *testing.T) {
-	clearScannerEnv(t)
-	t.Setenv("SCANNER_REGISTRY_HOST_MAP", "localhost=nginx:8080, Harbor.Corp.Local=harbor.corp.local:443")
-	config, err := GetConfig()
-	require.NoError(t, err)
-	assert.Equal(t, HostMap{"localhost": "nginx:8080", "harbor.corp.local": "harbor.corp.local:443"}, config.Registry.HostMap)
-}
-
-func TestHostMapRejectsMalformedPairs(t *testing.T) {
-	clearScannerEnv(t)
-	t.Setenv("SCANNER_REGISTRY_HOST_MAP", "localhost")
-	_, err := GetConfig()
-	assert.ErrorContains(t, err, "SCANNER_REGISTRY_HOST_MAP")
-}
-
-func TestTrustedHosts(t *testing.T) {
-	clearScannerEnv(t)
-	t.Setenv("SCANNER_REGISTRY_TRUSTED_HOSTS", "harbor.corp.local, core")
-	config, err := GetConfig()
-	require.NoError(t, err)
-	assert.True(t, config.Registry.Trusted("HARBOR.corp.local"))
-	assert.True(t, config.Registry.Trusted("core"))
-	assert.False(t, config.Registry.Trusted("evil.example.com"))
-	assert.False(t, config.Registry.Trusted(""))
-}
-
 func TestAPIKeyIsRequired(t *testing.T) {
 	clearScannerEnv(t)
 	t.Setenv("SCANNER_API_KEY", "")
@@ -468,9 +445,97 @@ func TestAPIKeyIsRequired(t *testing.T) {
 	assert.ErrorContains(t, err, "SCANNER_API_KEY", "a blank key is not a key")
 }
 
+func TestAPIKeyIsStoredTrimmed(t *testing.T) {
+	clearScannerEnv(t)
+	t.Setenv("SCANNER_API_KEY", "  test-key-0123456789  ")
+	config, err := GetConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "test-key-0123456789", config.API.Key)
+}
+
+func TestAPIKeyMustBeLongEnough(t *testing.T) {
+	clearScannerEnv(t)
+	t.Setenv("SCANNER_API_KEY", "short-key-12")
+	_, err := GetConfig()
+	assert.ErrorContains(t, err, "at least 16 characters")
+
+	t.Setenv("SCANNER_API_KEY", "0123456789abcdef") // exactly 16 characters
+	_, err = GetConfig()
+	assert.NoError(t, err)
+}
+
+func TestGrypeTimeoutValidation(t *testing.T) {
+	t.Run("blank errors", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_GRYPE_TIMEOUT", "")
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "SCANNER_GRYPE_TIMEOUT")
+	})
+
+	t.Run("negative errors", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_GRYPE_TIMEOUT", "-5m")
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "SCANNER_GRYPE_TIMEOUT")
+	})
+}
+
+func TestGrypeTmpDirBlankErrors(t *testing.T) {
+	clearScannerEnv(t)
+	t.Setenv("SCANNER_GRYPE_TMP_DIR", "")
+	_, err := GetConfig()
+	assert.ErrorContains(t, err, "SCANNER_GRYPE_TMP_DIR")
+}
+
+func TestAPIRedactsSecretsInLogsAndFormatting(t *testing.T) {
+	a := API{Addr: ":8090", Key: "super-secret-key"}
+
+	formatted := fmt.Sprintf("%+v", a)
+	assert.NotContains(t, formatted, "super-secret-key")
+	assert.Contains(t, formatted, ":8090", "non-secret fields still show")
+
+	var buf bytes.Buffer
+	slog.New(slog.NewTextHandler(&buf, nil)).Info("msg", slog.Any("api", a))
+	assert.NotContains(t, buf.String(), "super-secret-key")
+}
+
+// TestConfigRedactsSecretsInOutput proves the redaction reaches through the whole Config, not just
+// the Registry and API types directly: both fmt's own struct-field recursion (used by
+// slog's TextHandler for a value that is not itself an slog.LogValuer) and a direct String() call
+// must never leak SCANNER_API_KEY or SCANNER_REGISTRY_PASSWORD.
+func TestConfigRedactsSecretsInOutput(t *testing.T) {
+	clearScannerEnv(t)
+	t.Setenv("SCANNER_REGISTRY_USERNAME", "robot")
+	t.Setenv("SCANNER_REGISTRY_PASSWORD", "registry-secret-pw")
+	cfg, err := GetConfig()
+	require.NoError(t, err)
+
+	formatted := fmt.Sprintf("%+v", cfg)
+	assert.NotContains(t, formatted, "registry-secret-pw")
+	assert.NotContains(t, formatted, "test-key-0123456789")
+
+	var buf bytes.Buffer
+	slog.New(slog.NewTextHandler(&buf, nil)).Info("config", slog.Any("config", cfg))
+	assert.NotContains(t, buf.String(), "registry-secret-pw")
+	assert.NotContains(t, buf.String(), "test-key-0123456789")
+}
+
 func TestLogFormat(t *testing.T) {
-	t.Setenv("SCANNER_LOG_FORMAT", "JSON")
-	assert.Equal(t, "json", LogFormat())
-	t.Setenv("SCANNER_LOG_FORMAT", "")
-	assert.Equal(t, "text", LogFormat())
+	tests := []struct {
+		envValue string
+		expected string
+	}{
+		{"JSON", "json"},
+		{"json", "json"},
+		{" json ", "json"},
+		{"text", "text"},
+		{"bogus", "text"},
+		{"", "text"},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%q", tt.envValue), func(t *testing.T) {
+			t.Setenv("SCANNER_LOG_FORMAT", tt.envValue)
+			assert.Equal(t, tt.expected, LogFormat())
+		})
+	}
 }
