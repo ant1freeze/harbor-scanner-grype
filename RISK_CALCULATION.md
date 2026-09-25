@@ -22,6 +22,9 @@ The risk calculation is configured via the `risk-config.yaml` file:
 # Risk percentage thresholds for severity levels
 
 risk:
+  # Calculation mode: "formula", "cvss" or "policy"
+  mode: "formula"
+
   # Risk percentage thresholds (0-100%)
   thresholds:
     critical: 75.0  # Risk >= 75% = Critical
@@ -38,6 +41,8 @@ risk:
   # Enable/disable risk calculation
   enabled: true
 ```
+
+The mode is required when risk is enabled and is case-insensitive: with `enabled: true`, a missing or unknown `mode` stops the start, and `"Formula"` works as `"formula"`.
 
 ### Default Thresholds
 
@@ -165,6 +170,8 @@ The system looks for the configuration file in the following order:
 1. `/app/risk-config.yaml` (production)
 2. `risk-config.yaml` (development)
 
+Without either file the built-in defaults apply (`cvss` mode, risk enabled); a file that cannot be read or parsed stops the start.
+
 ## Testing
 
 The feature includes comprehensive tests covering:
@@ -251,7 +258,7 @@ second registration with the same URL, so either:
 | Variable | Default | Meaning |
 |---|---|---|
 | `SCANNER_RISK_ENABLED` | from `risk-config.yaml` (`true`) | `false` shows grype's own severity |
-| `SCANNER_RISK_MODE` | from `risk-config.yaml` (`formula` in the image, `cvss` without the file) | `policy`, `formula` or `cvss`, in any case; with risk enabled any other value stops the start |
+| `SCANNER_RISK_MODE` | from `risk-config.yaml` (`formula` in the image, `cvss` without the file) | `policy`, `formula` or `cvss`, in any case; with risk enabled, a missing mode or any other value stops the start |
 | `SCANNER_POLICY_CRITICAL`, `_HIGH`, `_MEDIUM` | 70, 30, 10 | risk thresholds of the ladder: Critical > High > Medium > 0, at most 100, one decimal |
 | `SCANNER_EXPLOITDB_FILE` | `/home/scanner/.cache/exploitdb/files_exploits.csv` | Exploit-DB list |
 | `SCANNER_EXPLOITDB_MAX_AGE` | `336h` | older lists are reported in the log; `0` turns the warning off |
