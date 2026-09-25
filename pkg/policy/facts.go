@@ -40,15 +40,28 @@ func (f facts) hasExploit() bool {
 }
 
 // malwarePrefixes are the openings of GitHub advisories about malicious packages. "Malicious code in"
-// marks packages from OpenSSF malicious-packages that GitHub imported.
-var malwarePrefixes = []string{"Malware in ", "Malicious code in ", "Malicious Package in ", "Embedded Malicious Code in "}
+// marks packages from OpenSSF malicious-packages that GitHub imported. "Embedded malware in" (lower
+// case "malware", unlike "Embedded Malicious Code in") marks the 2021 npm hijacks of ua-parser-js,
+// coa and rc.
+var malwarePrefixes = []string{
+	"Malware in ", "Malicious code in ", "Malicious Package in ", "Embedded Malicious Code in ", "Embedded malware in ",
+}
 
 // malware reports whether the finding is a malicious package rather than a flaw: GitHub publishes
-// such advisories with one of the fixed openings in malwarePrefixes, and CWE-506 is embedded
-// malicious code.
+// such advisories with one of the fixed openings in malwarePrefixes; knownMalwareAdvisories lists
+// the advisories whose titles don't follow any of those openings; and CWE-506 is embedded malicious
+// code.
 func (f facts) malware() (bool, string) {
 	for _, p := range malwarePrefixes {
 		if strings.HasPrefix(f.vuln.Description, p) {
+			return true, "github"
+		}
+	}
+	if knownMalwareAdvisories[f.vuln.ID] {
+		return true, "github"
+	}
+	for _, cve := range f.cves {
+		if knownMalwareAdvisories[cve] {
 			return true, "github"
 		}
 	}

@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -104,8 +105,13 @@ func TestMalware(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "github", source)
 
-	embedded := facts{vuln: grype.Vulnerability{Description: "Embedded Malicious Code in rest-client"}}
+	embedded := facts{vuln: grype.Vulnerability{Description: "Embedded Malicious Code in node-ipc"}}
 	ok, source = embedded.malware()
+	assert.True(t, ok)
+	assert.Equal(t, "github", source)
+
+	npmHijack := facts{vuln: grype.Vulnerability{Description: "Embedded malware in ua-parser-js"}}
+	ok, source = npmHijack.malware()
 	assert.True(t, ok)
 	assert.Equal(t, "github", source)
 
@@ -125,4 +131,37 @@ func TestMalware(t *testing.T) {
 	notAPrefix := facts{vuln: grype.Vulnerability{Description: "Detects Malware in uploaded files"}}
 	ok, _ = notAPrefix.malware()
 	assert.False(t, ok, "the wording must open the description, not just appear in it")
+}
+
+// TestMalwareKnownAdvisories covers advisories whose titles match none of malwarePrefixes: they are
+// only caught through knownMalwareAdvisories, by GHSA id or by CVE alias.
+func TestMalwareKnownAdvisories(t *testing.T) {
+	restClient := facts{vuln: grype.Vulnerability{ID: "GHSA-333g-rpr4-7hxq", Description: "rest-client Gem Contains Malicious Code"}}
+	ok, source := restClient.malware()
+	assert.True(t, ok)
+	assert.Equal(t, "github", source)
+
+	// With SCANNER_GRYPE_BY_CVE=true grype reports the CVE id instead of the GHSA id; collectFacts
+	// fills f.cves from the match so the CVE alias is what malware() finds.
+	byCVE := grype.Match{Vulnerability: grype.Vulnerability{ID: "CVE-2019-15224", Description: "rest-client Gem Contains Malicious Code"}}
+	f := collectFacts(byCVE, nil)
+	ok, source = f.malware()
+	assert.True(t, ok)
+	assert.Equal(t, "github", source)
+
+	notListed := facts{vuln: grype.Vulnerability{ID: "GHSA-qqqq-qqqq-qqqq", Description: "An ordinary vulnerability in some package"}}
+	ok, _ = notListed.malware()
+	assert.False(t, ok, "a GHSA id absent from knownMalwareAdvisories is not malware")
+}
+
+func TestKnownMalwareAdvisoriesKeysAreWellFormed(t *testing.T) {
+	ghsaID := regexp.MustCompile(`^GHSA(-[23456789cfghjmpqrvwx]{4}){3}$`)
+	cveID := regexp.MustCompile(`^CVE-\d{4}-\d{4,}$`)
+	for k := range knownMalwareAdvisories {
+		assert.True(t, ghsaID.MatchString(k) || cveID.MatchString(k), "malformed key %q", k)
+	}
+}
+
+func TestKnownMalwareAdvisoriesCount(t *testing.T) {
+	assert.Equal(t, 77, len(knownMalwareAdvisories), "62 GHSA ids of the tail plus 15 CVE aliases")
 }
