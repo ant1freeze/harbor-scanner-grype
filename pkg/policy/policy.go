@@ -9,7 +9,9 @@ import (
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/harbor"
 )
 
-// Thresholds are grype risk scores (0–100) from which the ladder gives a level.
+// Thresholds are grype risk scores (0–100) from which the ladder gives a level. Evaluate expects
+// 0 < Medium < High < Critical ≤ 100, which the config validates; the zero value is not usable:
+// it would make every finding with EPSS Critical.
 type Thresholds struct {
 	Critical float64
 	High     float64
@@ -32,19 +34,28 @@ type Result struct {
 const maxExploitLinks = 5
 
 // Evaluate gives one grype match its Harbor level:
-//  1. listed in the CISA KEV catalogue → Critical;
+//  1. listed in the CISA KEV catalogue → Critical, with the text of rule 2 as the first fact when
+//     the package is also malicious;
 //  2. a malicious package or embedded malicious code → Critical;
 //  3. otherwise the grype risk ladder when EPSS is known,
 //  4. or grype's own severity capped at High when it is not;
 //  5. a public exploit then raises levels below High.
+//
+// lookup may be nil: then only PoC links count as exploits. Evaluate keeps no state, so it is safe
+// for concurrent use as long as lookup is.
 func Evaluate(m grype.Match, lookup ExploitLookup, t Thresholds) Result {
 	f := collectFacts(m, lookup)
+	isMalware, source := f.malware()
 	var r reason
-	if len(f.vuln.KnownExploited) > 0 {
+	switch {
+	case len(f.vuln.KnownExploited) > 0:
 		r = kevRule(f)
-	} else if ok, source := f.malware(); ok {
+		if isMalware { // a compromised package calls for another response than a flaw: say so first
+			r.facts = append([]string{malwareRule(source).main}, r.facts...)
+		}
+	case isMalware:
 		r = malwareRule(source)
-	} else {
+	default:
 		r = exploitRule(f, baseRule(f, t))
 	}
 	return Result{Severity: r.level, Reason: r.String(), Links: exploitLinks(f.exploits)}
@@ -118,7 +129,8 @@ func ladderRule(f facts, t Thresholds) base {
 	if est.rescaled {
 		main := fmt.Sprintf("риск %s по максимальному EPSS бюллетеня (%s, %s), grype показывает %s; %s (критичность grype %s)",
 			formatRisk(est.value), est.epss.CVE, formatPercent(est.epss.Score), formatRisk(est.reported), threshold, sev)
-		return base{reason: reason{level: level, main: main}, basis: "риск " + formatRisk(est.value)}
+		basis := fmt.Sprintf("риск %s по максимальному EPSS, grype показывает %s", formatRisk(est.value), formatRisk(est.reported))
+		return base{reason: reason{level: level, main: main}, basis: basis}
 	}
 	main := fmt.Sprintf("риск grype %s, %s (EPSS %s, критичность grype %s)",
 		formatRisk(est.value), threshold, formatPercent(est.epss.Score), sev)
@@ -133,7 +145,7 @@ func noEPSSRule(f facts) base {
 	switch strings.ToLower(f.vuln.Severity) {
 	case "critical":
 		b.reason = reason{level: harbor.SevHigh,
-			main: "EPSS нет, взята критичность grype " + sev + ", понижена до High: без данных об атаках Critical не ставим"}
+			main: "EPSS нет, взята критичность grype " + sev + ", понижена до High: без EPSS и KEV Critical не ставим"}
 	case "high":
 		b.reason = reason{level: harbor.SevHigh, main: "EPSS нет, взята критичность grype " + sev}
 	case "medium":
@@ -177,8 +189,8 @@ func weakExploit(f facts) string {
 	switch {
 	case f.network:
 		return "но критичность grype " + grypeSeverity(f.vuln.Severity)
-	case f.vectors:
-		return "но уязвимость локальная"
+	case f.vectors: // local, adjacent network or physical
+		return "но вектор атаки не сетевой"
 	default:
 		return "но вектор атаки неизвестен"
 	}
