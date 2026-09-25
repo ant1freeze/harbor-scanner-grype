@@ -1,7 +1,9 @@
 package etc
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math"
 	"os"
@@ -225,12 +227,17 @@ func GetConfig() (Config, error) {
 		}
 	}
 
-	// Load risk configuration from YAML file
+	// Load risk configuration from YAML file. The built-in defaults apply only when there is no
+	// risk-config.yaml at all: a file that cannot be read or parsed stops the start, rather than
+	// silently running in the defaults' cvss mode instead of the mode it sets.
 	riskConfig, err := LoadRiskConfig()
-	if err != nil {
-		slog.Warn("Failed to load risk config, using defaults", "error", err)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		slog.Warn("No risk-config.yaml in /app or the working directory, using the built-in risk defaults")
 		cfg.Risk = getDefaultRiskConfig()
-	} else {
+	case err != nil:
+		return cfg, err
+	default:
 		cfg.Risk = riskConfig
 	}
 
@@ -247,6 +254,9 @@ func GetConfig() (Config, error) {
 	return cfg, nil
 }
 
+// LoadRiskConfig reads /app/risk-config.yaml or, when that does not exist, ./risk-config.yaml.
+// When neither exists, the error matches fs.ErrNotExist; any other read or parse error names the
+// file.
 func LoadRiskConfig() (RiskConfig, error) {
 	var config RiskConfig
 
@@ -259,12 +269,11 @@ func LoadRiskConfig() (RiskConfig, error) {
 
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return config, err
+		return config, err // an *fs.PathError, which names the file
 	}
 
-	err = yaml.Unmarshal(data, &config)
-	if err != nil {
-		return config, err
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return config, fmt.Errorf("parsing %s: %w", configPath, err)
 	}
 	return config, nil
 }

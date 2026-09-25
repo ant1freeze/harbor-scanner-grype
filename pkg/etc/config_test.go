@@ -214,15 +214,25 @@ func TestExploitDBMaxAgeValidation(t *testing.T) {
 	})
 }
 
-// chdirToTempRiskConfig writes risk-config.yaml into a fresh temp dir and changes the process's
-// working directory into it for the rest of the test, restoring the previous directory in
-// t.Cleanup. Go 1.22 (this project's toolchain) has no t.Chdir. LoadRiskConfig looks at
-// /app/risk-config.yaml first; that path does not exist on a dev or CI machine, so it falls back
-// to the relative "risk-config.yaml", resolved against the working directory set here.
-func chdirToTempRiskConfig(t *testing.T, yamlContent string) {
+// skipIfAppRiskConfigExists skips a test that controls risk-config.yaml through the working
+// directory: LoadRiskConfig reads /app/risk-config.yaml first, so where that file exists, as in
+// the runtime image, it would be read instead of the test's own file (or its absence).
+func skipIfAppRiskConfigExists(t *testing.T) {
 	t.Helper()
+	if _, err := os.Stat("/app/risk-config.yaml"); err == nil {
+		t.Skip("/app/risk-config.yaml exists and takes precedence")
+	}
+}
+
+// chdirToTempDir changes the process's working directory into a fresh temp dir for the rest of
+// the test, restoring the previous directory in t.Cleanup, and returns the dir. Go 1.22 (this
+// project's toolchain) has no t.Chdir. LoadRiskConfig looks at /app/risk-config.yaml first and
+// falls back to the relative "risk-config.yaml", resolved against the working directory set here;
+// the test is skipped where /app/risk-config.yaml exists (skipIfAppRiskConfigExists).
+func chdirToTempDir(t *testing.T) string {
+	t.Helper()
+	skipIfAppRiskConfigExists(t)
 	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "risk-config.yaml"), []byte(yamlContent), 0644))
 
 	oldWd, err := os.Getwd()
 	require.NoError(t, err)
@@ -230,6 +240,15 @@ func chdirToTempRiskConfig(t *testing.T, yamlContent string) {
 	t.Cleanup(func() {
 		assert.NoError(t, os.Chdir(oldWd))
 	})
+	return dir
+}
+
+// chdirToTempRiskConfig writes risk-config.yaml into a fresh temp dir and makes that dir the
+// working directory for the rest of the test (see chdirToTempDir).
+func chdirToTempRiskConfig(t *testing.T, yamlContent string) {
+	t.Helper()
+	dir := chdirToTempDir(t)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "risk-config.yaml"), []byte(yamlContent), 0644))
 }
 
 func TestRiskConfigYAMLPrecedence(t *testing.T) {
@@ -275,6 +294,35 @@ func TestRiskConfigDisabledWithoutModeLoadsOK(t *testing.T) {
 	config, err := GetConfig()
 	require.NoError(t, err)
 	assert.False(t, config.Risk.Risk.Enabled)
+}
+
+// A risk-config.yaml that cannot be read or parsed stops the start with an error that names the
+// file: falling back to the built-in defaults would silently run in their cvss mode instead of the
+// mode the file sets.
+func TestBrokenRiskConfigStopsTheStart(t *testing.T) {
+	t.Run("YAML syntax error", func(t *testing.T) {
+		chdirToTempRiskConfig(t, "risk: {mode: [policy\n")
+		clearScannerEnv(t)
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "risk-config.yaml")
+	})
+
+	t.Run("not readable", func(t *testing.T) {
+		dir := chdirToTempDir(t)
+		require.NoError(t, os.Mkdir(filepath.Join(dir, "risk-config.yaml"), 0o755))
+		clearScannerEnv(t)
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "risk-config.yaml")
+	})
+}
+
+// Without any risk-config.yaml the built-in defaults still apply.
+func TestMissingRiskConfigUsesDefaults(t *testing.T) {
+	chdirToTempDir(t)
+	clearScannerEnv(t)
+	config, err := GetConfig()
+	require.NoError(t, err)
+	assert.Equal(t, getDefaultRiskConfig(), config.Risk)
 }
 
 func TestRiskNumbersMustBeFinite(t *testing.T) {
