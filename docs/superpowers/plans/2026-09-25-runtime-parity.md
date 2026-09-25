@@ -1994,3 +1994,19 @@ docker rmi localhost:5001/library/redis:7-alpine
   Harbor» и `credentials` в «Authorization type detected». При переписывании выбора учётных данных убрать все
   три поля (оставить только тип: Basic, Bearer или пусто) и добавить тест, что в выводе лога нет ни
   заголовка, ни токена.
+
+## Поправки по ходу выполнения плана 2
+
+- Task 3: подмена хоста — через `HostMap.Lookup(host)` из Task 1, а хост и порт собираются `net.JoinHostPort`,
+  иначе цель `[::1]:5000` превращается в `::1:5000/…`.
+- Task 5: флаги TLS для grype — только `Registry.InsecureUseHTTP/InsecureSkipTLSVerify` (переменные
+  `GRYPE_REGISTRY_INSECURE_*`); `SCANNER_GRYPE_INSECURE` больше ни на что не влияет.
+- Task 6: в метаданных вместо `env.SCANNER_GRYPE_INSECURE` показывать настоящие флаги реестра; добавить режим
+  риска, пороги политики, дату и число CVE списка Exploit-DB (см. замечания из итоговой проверки плана 1).
+- Task 7: при старте предупреждать, если проверка сертификатов реестра выключена (особенно когда задана учётка)
+  и если учётка задана, но `SCANNER_REGISTRY_TRUSTED_HOSTS` пуст (`Registry.AccountUnused()`); адрес Redis
+  писать в лог без пароля (только хост и порт).
+- Task 10: в `.env.example` и INSTALL.md — как сгенерировать ключ (`openssl rand -hex 32`, не короче 16
+  символов), что проверка TLS по умолчанию выключена и как её включить (`SSL_CERT_FILE`/`SSL_CERT_DIR` и
+  `SCANNER_REGISTRY_INSECURE_SKIP_TLS_VERIFY=false`).
+- Task 11: ключ для E2E — не короче 16 символов.
