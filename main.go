@@ -65,7 +65,7 @@ func main() {
 	ambassador := ext.DefaultAmbassador()
 
 	// Create Grype wrapper
-	grypeWrapper := grype.NewWrapper(config.Grype, ambassador)
+	grypeWrapper := grype.NewWrapper(config.Grype, config.Registry, ambassador)
 
 	// Create store
 	store := redis.NewStore(config.RedisStore, rdb)
