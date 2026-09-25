@@ -25,9 +25,19 @@ func TestCVEIDsCollectsEveryCVEOnce(t *testing.T) {
 	assert.Equal(t, []string{"CVE-2099-0001", "CVE-2099-0002", "CVE-2099-0003"}, cveIDs(m))
 }
 
+func TestCVEIDsTrimsAndUppercases(t *testing.T) {
+	m := grype.Match{Vulnerability: grype.Vulnerability{EPSS: []grype.EPSS{{CVE: " cve-2099-0005 "}}}}
+	assert.Equal(t, []string{"CVE-2099-0005"}, cveIDs(m))
+}
+
 func TestExploitIDsAcrossCVEsAreSortedAndUnique(t *testing.T) {
 	lookup := fakeExploits{"CVE-2021-44228": {"50592", "50590"}, "CVE-2021-45046": {"50592", "51183"}}
 	assert.Equal(t, []string{"50590", "50592", "51183"}, exploitIDs([]string{"CVE-2021-44228", "CVE-2021-45046"}, lookup))
+}
+
+func TestExploitIDsSortsNumericallyNotLexically(t *testing.T) {
+	lookup := fakeExploits{"CVE-2099-0001": {"10000"}, "CVE-2099-0002": {"9999"}}
+	assert.Equal(t, []string{"9999", "10000"}, exploitIDs([]string{"CVE-2099-0001", "CVE-2099-0002"}, lookup))
 }
 
 func TestFirstPoCFindsExploitLinksOnly(t *testing.T) {
@@ -48,6 +58,14 @@ func TestFirstPoCFindsExploitLinksOnly(t *testing.T) {
 
 	edb := grype.Match{Vulnerability: grype.Vulnerability{URLs: []string{"https://www.exploit-db.com/exploits/52134"}}}
 	assert.Equal(t, "https://www.exploit-db.com/exploits/52134", firstPoC(edb))
+}
+
+func TestFirstPoCPrefersVulnerabilityURLs(t *testing.T) {
+	m := grype.Match{
+		Vulnerability:          grype.Vulnerability{URLs: []string{"https://www.exploit-db.com/exploits/1111"}},
+		RelatedVulnerabilities: []grype.RelatedVulnerability{{URLs: []string{"https://www.exploit-db.com/exploits/2222"}}},
+	}
+	assert.Equal(t, "https://www.exploit-db.com/exploits/1111", firstPoC(m))
 }
 
 func TestNetworkReachable(t *testing.T) {
@@ -76,6 +94,21 @@ func TestMalware(t *testing.T) {
 	assert.True(t, ok)
 	assert.Equal(t, "github", source)
 
+	openssf := facts{vuln: grype.Vulnerability{Description: "Malicious code in 0x000testqwe (PyPI)"}}
+	ok, source = openssf.malware()
+	assert.True(t, ok)
+	assert.Equal(t, "github", source)
+
+	oldNpm := facts{vuln: grype.Vulnerability{Description: "Malicious Package in flatmap-stream"}}
+	ok, source = oldNpm.malware()
+	assert.True(t, ok)
+	assert.Equal(t, "github", source)
+
+	embedded := facts{vuln: grype.Vulnerability{Description: "Embedded Malicious Code in rest-client"}}
+	ok, source = embedded.malware()
+	assert.True(t, ok)
+	assert.Equal(t, "github", source)
+
 	xz := facts{vuln: grype.Vulnerability{CWEs: []grype.CWE{{CVE: "CVE-2024-3094", CWE: "CWE-506"}}}}
 	ok, source = xz.malware()
 	assert.True(t, ok)
@@ -84,4 +117,12 @@ func TestMalware(t *testing.T) {
 	injection := facts{vuln: grype.Vulnerability{Description: "This issue may allow an attacker to inject malicious code into the command"}}
 	ok, _ = injection.malware()
 	assert.False(t, ok, "wording about malicious input is not malware")
+
+	realFlaw := facts{vuln: grype.Vulnerability{Description: "Malicious PDF can inject JavaScript into PDF Viewer"}}
+	ok, _ = realFlaw.malware()
+	assert.False(t, ok, "a real flaw whose title starts with Malicious is not a malware advisory")
+
+	notAPrefix := facts{vuln: grype.Vulnerability{Description: "Detects Malware in uploaded files"}}
+	ok, _ = notAPrefix.malware()
+	assert.False(t, ok, "the wording must open the description, not just appear in it")
 }

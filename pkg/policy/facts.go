@@ -9,7 +9,8 @@ import (
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/grype"
 )
 
-// pocPattern marks links to public exploits or proof-of-concept code, as in tools/rescore.py.
+// pocPattern marks links to public exploits or proof-of-concept code: the pattern from the design
+// spec, section 4.2 (docs/superpowers/specs/2026-09-25-policy-mode-design.md).
 var pocPattern = regexp.MustCompile(`(?i)exploit-db\.com|packetstormsecurity\.com/files|rapid7\.com/db/modules|metasploit|0day\.today|seebug\.org|github\.com/[^/]+/[^/]*(poc|exploit|cve-\d{4}-\d+)`)
 
 // networkVector matches the base attack vector "network" in CVSS v2, v3 and v4 vectors,
@@ -38,11 +39,18 @@ func (f facts) hasExploit() bool {
 	return len(f.exploits) > 0 || f.poc != ""
 }
 
+// malwarePrefixes are the openings of GitHub advisories about malicious packages. "Malicious code in"
+// marks packages from OpenSSF malicious-packages that GitHub imported.
+var malwarePrefixes = []string{"Malware in ", "Malicious code in ", "Malicious Package in ", "Embedded Malicious Code in "}
+
 // malware reports whether the finding is a malicious package rather than a flaw: GitHub publishes
-// such advisories as "Malware in <package>", and CWE-506 is embedded malicious code.
+// such advisories with one of the fixed openings in malwarePrefixes, and CWE-506 is embedded
+// malicious code.
 func (f facts) malware() (bool, string) {
-	if strings.HasPrefix(f.vuln.Description, "Malware in ") {
-		return true, "github"
+	for _, p := range malwarePrefixes {
+		if strings.HasPrefix(f.vuln.Description, p) {
+			return true, "github"
+		}
 	}
 	for _, c := range f.vuln.CWEs {
 		if c.CWE == "CWE-506" {
@@ -80,6 +88,8 @@ func cveIDs(m grype.Match) []string {
 	return out
 }
 
+// exploitIDs merges the Exploit-DB ids of every CVE in cves into one sorted, de-duplicated list.
+// It does not modify the slices lookup.Lookup returns.
 func exploitIDs(cves []string, lookup ExploitLookup) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -102,6 +112,8 @@ func exploitIDs(cves []string, lookup ExploitLookup) []string {
 	return out
 }
 
+// firstPoC returns the first link matching pocPattern, checking the vulnerability's own URLs
+// before those of related records.
 func firstPoC(m grype.Match) string {
 	for _, u := range m.Vulnerability.URLs {
 		if pocPattern.MatchString(u) {
