@@ -13,17 +13,27 @@ import (
 // spec, section 4.2 (docs/superpowers/specs/2026-09-25-policy-mode-design.md).
 var pocPattern = regexp.MustCompile(`(?i)exploit-db\.com|packetstormsecurity\.com/files|rapid7\.com/db/modules|metasploit|0day\.today|seebug\.org|github\.com/[^/]+/[^/]*(poc|exploit|cve-\d{4}-\d+)`)
 
-// notPoCPattern marks links that pocPattern matches but that hold no exploit. Packet Storm republishes
-// vendor advisories, and Secunia's advisory summaries, under titles such as "Slackware Security
-// Advisory - curl Updates" or "Kernel Live Patch Security Notice LSN-0053-1": the slug of such a copy
-// opens with the publisher's name and "Security Advisory/Notice/Bulletin/Announcement". Researcher
-// advisories ("Qualys Security Advisory - …") are not listed: they carry exploitation details. The rest
-// are index pages: Packet Storm author and date listings, the Exploit-DB home page and its papers,
-// docs, GHDB, author and search pages.
-var notPoCPattern = regexp.MustCompile(`(?i)` +
-	`packetstormsecurity\.com/files/\d+/((Red-Hat|Ubuntu|Kernel-Live-Patch|Debian|Gentoo-Linux|(open)?SUSE|Slackware|Mandriva-Linux|FreeBSD|VMware|Apple|Cisco|HP|Asterisk-Project|OpenSSL|Siemens|Secunia)-Security-(Advisory|Notice|Bulletin|Announcement)|USN-\d|Security-Notice-For-)` +
-	`|packetstormsecurity\.com/files/(author|date|tags)/` +
-	`|exploit-db\.com(/(docs|papers|ghdb|google-hacking-database|author|search)[/?]|/?$)`)
+const (
+	// packetStormVendorAdvisories matches Packet Storm's copies of vendor and Secunia advisories,
+	// under titles such as "Slackware Security Advisory - curl Updates" or "Kernel Live Patch
+	// Security Notice LSN-0053-1": the file slug opens with the publisher's name right after
+	// /files/<id>/, followed by "Security Advisory/Notice/Bulletin/Announcement". Researcher
+	// advisories ("Qualys Security Advisory - …") are not listed: they carry exploitation details.
+	packetStormVendorAdvisories = `packetstormsecurity\.com/files/\d+/((Red-Hat|Ubuntu|Kernel-Live-Patch|Debian|Gentoo-Linux|(open)?SUSE|Slackware|Mandriva-Linux|FreeBSD|VMware|Apple|Cisco|HP|Asterisk-Project|OpenSSL|Siemens|Secunia)-Security-(Advisory|Notice|Bulletin|Announcement)|USN-\d|Security-Notice-For-)`
+
+	// packetStormIndexPages matches Packet Storm's author, date and tags listings.
+	packetStormIndexPages = `packetstormsecurity\.com/files/(author|date|tags)/`
+
+	// exploitDBNonExploitPages matches Exploit-DB pages that hold no exploit: its docs, papers, GHDB,
+	// author and search pages (bare, or followed by /, ? or #), the bare exploits index, and the
+	// home page (with or without a query or fragment).
+	exploitDBNonExploitPages = `exploit-db\.com(/(docs|papers|ghdb|google-hacking-database|author|search)([/?#]|$)|/exploits/?([?#]|$)|/?([?#]|$))`
+)
+
+// notPoCPattern marks links that pocPattern matches but that hold no exploit: Packet Storm's copies
+// of vendor advisories, its author/date/tags index pages, and Exploit-DB pages that are not a
+// specific exploit.
+var notPoCPattern = regexp.MustCompile(`(?i)` + packetStormVendorAdvisories + `|` + packetStormIndexPages + `|` + exploitDBNonExploitPages)
 
 // isPoC reports whether a link points to a public exploit or proof-of-concept code.
 func isPoC(u string) bool {

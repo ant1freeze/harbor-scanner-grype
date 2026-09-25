@@ -35,9 +35,11 @@ func TestIsPoCRejectsAdvisoryCopiesAndIndexPages(t *testing.T) {
 		"https://packetstormsecurity.com/files/156005/Cisco-Security-Advisory-20190508-asa.html",
 		"https://packetstormsecurity.com/files/156006/openSUSE-Security-Announcement-2011-001.html",
 		"HTTPS://PACKETSTORMSECURITY.COM/files/156007/RED-HAT-SECURITY-ADVISORY-2020-0001-01.html",
+		"https://packetstormsecurity.com/files/156008/SUSE-Security-Announcement-SUSE-SA-2011-001.html", // plain SUSE, not openSUSE
 		// Packet Storm index pages
 		"https://packetstormsecurity.com/files/author/8433/",
 		"https://packetstormsecurity.com/files/date/2012-12-14/",
+		"https://packetstormsecurity.com/files/tags/exploit/",
 		// Exploit-DB pages other than an exploit
 		"https://www.exploit-db.com/",
 		"https://www.exploit-db.com",
@@ -48,6 +50,15 @@ func TestIsPoCRejectsAdvisoryCopiesAndIndexPages(t *testing.T) {
 		"https://www.exploit-db.com/ghdb/4613/",
 		"https://www.exploit-db.com/google-hacking-database/4613",
 		"https://www.exploit-db.com/search?cve=2021-44228",
+		// more Exploit-DB index shapes: nothing after the name, only a fragment, a query or
+		// fragment on the home page, and the bare exploits index
+		"https://www.exploit-db.com/papers",
+		"https://www.exploit-db.com/search",
+		"https://www.exploit-db.com/papers#x",
+		"https://www.exploit-db.com/?utm=x",
+		"https://www.exploit-db.com/#top",
+		"https://www.exploit-db.com/exploits/",
+		"https://www.exploit-db.com/exploits",
 	} {
 		assert.True(t, pocPattern.MatchString(u), "pocPattern should match %s", u)
 		assert.False(t, isPoC(u), u)
@@ -78,6 +89,8 @@ func TestIsPoCKeepsExploitsAndResearcherAdvisories(t *testing.T) {
 		"http://packetstormsecurity.com/files/134000/Katello-Red-Hat-Satellite-users-update_roles-Missing-Authorization.html",
 		"http://packetstormsecurity.com/files/176000/CentOS-Stream-9-Missing-Kernel-Security-Fix.html",
 		"http://packetstormsecurity.com/files/176001/Solaris-10-dtprintinfo-libXm-libXpm-Security-Issues.html",
+		// a vendor name later in the slug, not right after /files/<id>/, is not an advisory copy
+		"https://packetstormsecurity.com/files/1/Bypassing-Cisco-Security-Advisory-Checks.html",
 		// no title in the link, a per-CVE listing, a direct download
 		"http://packetstormsecurity.com/files/120923",
 		"http://packetstormsecurity.com/files/123454/",
