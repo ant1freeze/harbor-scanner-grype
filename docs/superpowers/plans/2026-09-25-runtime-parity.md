@@ -1526,7 +1526,8 @@ done
 exploitdb_file="${SCANNER_EXPLOITDB_FILE:-/home/scanner/.cache/exploitdb/files_exploits.csv}"
 mkdir -p "$(dirname "$exploitdb_file")"
 if [ ! -s "$exploitdb_file" ] && [ -s /usr/local/share/exploitdb/files_exploits.csv ]; then
-    cp /usr/local/share/exploitdb/files_exploits.csv "$exploitdb_file"
+    # -p keeps the build date, so an old image's copy is reported by SCANNER_EXPLOITDB_MAX_AGE.
+    cp -p /usr/local/share/exploitdb/files_exploits.csv "$exploitdb_file"
 fi
 chown -R scanner:scanner "$(dirname "$exploitdb_file")"
 
