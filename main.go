@@ -144,9 +144,10 @@ func main() {
 	<-sigChan
 	slog.Info("Shutdown signal received")
 
-	// Shutdown
-	worker.Stop()
+	// Stop accepting scan requests first, then let the scans in progress finish. Scans still running
+	// when the container is killed are requeued on the next start.
 	server.Shutdown()
+	worker.Stop()
 	cancel()
 
 	slog.Info("Harbor Scanner Grype stopped")

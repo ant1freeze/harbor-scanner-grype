@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/etc"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/grype"
+	"github.com/aquasecurity/harbor-scanner-grype/pkg/job"
+	"github.com/aquasecurity/harbor-scanner-grype/pkg/persistence"
 )
 
 type fakeWrapper struct{ grype.Wrapper }
@@ -162,4 +165,36 @@ func TestMetadataReportsExploitDBInfoWhenAListIsLoaded(t *testing.T) {
 
 	assert.Equal(t, "2026-09-24T03:00:00Z", props["harbor.scanner-adapter/exploitdb-updated-at"])
 	assert.Equal(t, "45231", props["harbor.scanner-adapter/exploitdb-cve-count"])
+}
+
+// fakeStore knows one queued job and records the awaited marks.
+type fakeStore struct {
+	persistence.Store
+	marked []time.Duration
+}
+
+func (f *fakeStore) Get(_ context.Context, key job.ScanJobKey) (*job.ScanJob, error) {
+	if key.ID != "job-1" {
+		return nil, nil
+	}
+	return &job.ScanJob{Key: key, Status: job.Queued}, nil
+}
+
+func (f *fakeStore) MarkAwaited(_ context.Context, _ job.ScanJobKey, ttl time.Duration) error {
+	f.marked = append(f.marked, ttl)
+	return nil
+}
+
+func TestPollingForAQueuedReportKeepsItAwaited(t *testing.T) {
+	store := &fakeStore{}
+	config := etc.Config{API: etc.API{Key: "adapter-key"}, Harbor: etc.Harbor{PollTimeout: 2 * time.Minute}}
+	h := NewAPIHandler(etc.BuildInfo{}, config, nil, store, fakeWrapper{}, nil)
+
+	rec := call(h, http.MethodGet, "/api/v1/scan/job-1/report", map[string]string{
+		"Authorization": "Bearer adapter-key",
+		"Accept":        "application/vnd.security.vulnerability.report; version=1.1",
+	}, "")
+
+	assert.Equal(t, http.StatusFound, rec.Code)
+	assert.Equal(t, []time.Duration{2 * time.Minute}, store.marked)
 }

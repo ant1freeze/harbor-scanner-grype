@@ -38,12 +38,14 @@ func NewController(store persistence.Store, wrapper grype.Wrapper, transformer T
 	}
 }
 
+// Scan runs one scan job and stores its report. A failed scan is stored as Failed and its error
+// returned, so the worker can log it.
 func (c *controller) Scan(ctx context.Context, scanJobKey job.ScanJobKey, request *harbor.ScanRequest) error {
 	if err := c.scan(ctx, scanJobKey, request); err != nil {
-		slog.Error("Scan failed", slog.String("err", err.Error()))
-		if err = c.store.UpdateStatus(ctx, scanJobKey, job.Failed, err.Error()); err != nil {
-			return xerrors.Errorf("updating scan job as failed: %v", err)
+		if updateErr := c.store.UpdateStatus(ctx, scanJobKey, job.Failed, err.Error()); updateErr != nil {
+			return xerrors.Errorf("%v; updating scan job as failed: %w", err, updateErr)
 		}
+		return err
 	}
 	return nil
 }
@@ -51,7 +53,7 @@ func (c *controller) Scan(ctx context.Context, scanJobKey job.ScanJobKey, reques
 func (c *controller) scan(ctx context.Context, scanJobKey job.ScanJobKey, req *harbor.ScanRequest) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = r.(error)
+			err = xerrors.Errorf("scan panicked: %v", r)
 		}
 	}()
 

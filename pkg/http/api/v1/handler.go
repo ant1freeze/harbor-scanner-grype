@@ -300,6 +300,10 @@ func (h *requestHandler) GetScanReport(res http.ResponseWriter, req *http.Reques
 	scanJobLog := reqLog.With(slog.String("scan_job_status", scanJob.Status.String()))
 
 	if scanJob.Status == job.Queued || scanJob.Status == job.Pending {
+		// Harbor still waits for this report: keep the job from being skipped.
+		if err := h.store.MarkAwaited(req.Context(), scanJob.Key, h.config.Harbor.PollTimeout); err != nil {
+			scanJobLog.Warn("Failed to mark the scan job as awaited", slog.String("err", err.Error()))
+		}
 		scanJobLog.Debug("Scan job has not finished yet")
 		res.Header().Add("Location", req.URL.String())
 		res.WriteHeader(http.StatusFound)
