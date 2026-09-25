@@ -43,7 +43,7 @@ type riskEstimate struct {
 	value    float64    // 0–100
 	reported float64    // the risk grype reported
 	rescaled bool       // value uses the highest EPSS of the record instead of the first
-	epss     grype.EPSS // the EPSS entry value is based on; the zero value when the record has no EPSS
+	epss     grype.EPSS // the first EPSS entry, or the highest when rescaled; the zero value when the record has no EPSS
 }
 
 // estimateRisk returns grype's risk. When the record carries EPSS for several CVEs and the first

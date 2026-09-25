@@ -60,10 +60,11 @@ func TestEstimateRiskRescalesAdvisoriesToHighestEPSS(t *testing.T) {
 
 func TestEstimateRiskPicksHighestEPSSAnywhereInTheList(t *testing.T) {
 	v := grype.Vulnerability{ID: "ELSA-2099-0001", Severity: "High", Risk: 1.5,
-		EPSS: []grype.EPSS{{CVE: "CVE-2099-1000", Score: 0.02}, {CVE: "CVE-2099-1001", Score: 0.60}, {CVE: "CVE-2099-1002", Score: 0.10}}}
+		EPSS: []grype.EPSS{{CVE: "CVE-2099-1000", Score: 0.02}, {CVE: "CVE-2099-1001", Score: 0.10},
+			{CVE: "CVE-2099-1002", Score: 0.60}, {CVE: "CVE-2099-1003", Score: 0.05}}}
 	est := estimateRisk(v)
 	assert.InDelta(t, 45.0, est.value, 1e-9)
-	assert.Equal(t, "CVE-2099-1001", est.epss.CVE)
+	assert.Equal(t, "CVE-2099-1002", est.epss.CVE)
 }
 
 func TestEstimateRiskKeepsGrypeValueWhenFirstTiesWithHighest(t *testing.T) {
