@@ -4,24 +4,39 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/harbor"
 )
 
 // reason is the explanation put in front of the vulnerability description in Harbor:
-// "<level>: <main reason>; <fact>; <fact>." Harbor shows it as one paragraph.
+// "<level>: <main reason>; <fact>; <fact>." or, dated, "<level> на <YYYY-MM-DD>: <main reason>;
+// <fact>; <fact>." Harbor shows it as one paragraph.
 type reason struct {
 	level harbor.Severity
 	main  string
 	facts []string
 }
 
-func (r reason) String() string {
-	s := r.level.String() + ": " + r.main
+// text renders the explanation, dated when asOf is not the zero time. Harbor keeps a finding's
+// description only from its first scan — a later scan updates only severity, fixed version, CVSS
+// and status — so the explanation can outlive the level it explains; the date lets a reader see
+// when the assessment behind it was made.
+func (r reason) text(asOf time.Time) string {
+	s := r.level.String()
+	if !asOf.IsZero() {
+		s += " на " + asOf.Format("2006-01-02")
+	}
+	s += ": " + r.main
 	for _, f := range r.facts {
 		s += "; " + f
 	}
 	return s + "."
+}
+
+// String renders the explanation without a date, for callers with no clock of their own.
+func (r reason) String() string {
+	return r.text(time.Time{})
 }
 
 // formatPercent renders an EPSS probability (0–1) as a percentage with one decimal, without a

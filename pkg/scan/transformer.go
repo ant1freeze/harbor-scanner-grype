@@ -47,8 +47,9 @@ func (c *SystemClock) Now() time.Time {
 }
 
 func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequest, report grype.Report) *harbor.ScanReport {
+	now := t.clock.Now()
 	scanReport := &harbor.ScanReport{
-		GeneratedAt: t.clock.Now(),
+		GeneratedAt: now,
 		Artifact:    request.Artifact,
 		Scanner:     harbor.GetScannerMetadata(),
 	}
@@ -60,11 +61,12 @@ func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequ
 	}
 
 	// One Harbor item per grype match: a CVE found in libcrypto3, libssl3 and openssl is three
-	// items, each with its own package.
+	// items, each with its own package. now is read once, here, rather than once per match, so a
+	// policy-mode item's dated explanation (see toItem) agrees across every item of one report.
 	var vulnerabilities []harbor.VulnerabilityItem
 	var maxSeverity harbor.Severity
 	for _, match := range report.Matches {
-		item := t.toItem(match)
+		item := t.toItem(match, now)
 		if item.Severity > maxSeverity {
 			maxSeverity = item.Severity
 		}
@@ -76,7 +78,9 @@ func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequ
 	return scanReport
 }
 
-func (t *transformer) toItem(match grype.Match) harbor.VulnerabilityItem {
+// toItem builds one Harbor item from a grype match. asOf is the day (in its own time zone) that
+// dates a policy-mode explanation; legacy modes ignore it.
+func (t *transformer) toItem(match grype.Match, asOf time.Time) harbor.VulnerabilityItem {
 	vuln := match.Vulnerability
 	item := harbor.VulnerabilityItem{
 		ID:          vuln.ID,
@@ -93,7 +97,7 @@ func (t *transformer) toItem(match grype.Match) harbor.VulnerabilityItem {
 	case !t.config.Risk.Enabled:
 		item.Severity = mapGrypeSeverityToHarbor(vuln.Severity)
 	case t.config.Risk.PolicyMode():
-		res := policy.Evaluate(match, t.exploits, t.thresholds)
+		res := policy.Evaluate(match, t.exploits, t.thresholds, asOf)
 		item.Severity = res.Severity
 		item.Description = withReason(res.Reason, vuln.Description)
 		item.Links = appendMissing(vuln.URLs, res.Links)

@@ -2,6 +2,7 @@ package scan
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,9 +21,16 @@ var testRequest = harbor.ScanRequest{Artifact: harbor.Artifact{Repository: "libr
 
 var policyThresholds = policy.Thresholds{Critical: 70, High: 30, Medium: 10}
 
+// fixedClock pins the assessment date so policy-mode tests can use exact-string expectations for
+// the dated explanation ("High на 2026-09-25: …").
+type fixedClock struct{ t time.Time }
+
+func (c fixedClock) Now() time.Time { return c.t }
+
 func policyTransformer(exploits policy.ExploitLookup) Transformer {
 	config := etc.RiskConfig{Risk: etc.RiskConfigData{Enabled: true, Mode: "policy"}}
-	return NewTransformer(&SystemClock{}, config, policyThresholds, exploits)
+	clock := fixedClock{time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
+	return NewTransformer(clock, config, policyThresholds, exploits)
 }
 
 func TestTransformOneItemPerMatch(t *testing.T) {
@@ -81,13 +89,13 @@ func TestTransformPolicyModeExplainsLevel(t *testing.T) {
 	tomcat, golang := result.Vulnerabilities[0], result.Vulnerabilities[1]
 
 	assert.Equal(t, harbor.SevCritical, tomcat.Severity)
-	assert.Equal(t, "Critical: есть в каталоге KEV с 2025-04-01; есть эксплойт в Exploit-DB (52134); риск grype 98.7."+
+	assert.Equal(t, "Critical на 2026-09-25: есть в каталоге KEV с 2025-04-01; есть эксплойт в Exploit-DB (52134); риск grype 98.7."+
 		" — Apache Tomcat: Potential RCE and/or information disclosure and/or information corruption with partial PUT", tomcat.Description)
 	assert.Equal(t, []string{"https://github.com/advisories/GHSA-83qj-6fr2-vhqg", "https://www.exploit-db.com/exploits/52134"}, tomcat.Links)
 	assert.Equal(t, "", urls[:2][1], "appendMissing must copy links, not write into the caller's spare capacity")
 
 	assert.Equal(t, harbor.SevHigh, golang.Severity)
-	assert.Equal(t, "High: риск grype 69.0, порог High от 30 (EPSS 92%, критичность grype High); эксплойтов не найдено; в KEV нет."+
+	assert.Equal(t, "High на 2026-09-25: риск grype 69.0, порог High от 30 (EPSS 92%, критичность grype High); эксплойтов не найдено; в KEV нет."+
 		" — An attacker may cause an HTTP/2 endpoint to read arbitrary amounts of header data.", golang.Description)
 
 	assert.Equal(t, harbor.SevCritical, result.Severity)
@@ -116,7 +124,7 @@ func TestTransformPolicyModeWithoutDescription(t *testing.T) {
 	}}}
 	result := policyTransformer(nil).Transform("application/vnd.security.vulnerability.report", testRequest, report)
 	require.Len(t, result.Vulnerabilities, 1)
-	assert.Equal(t, "Unknown: EPSS нет, критичность grype неизвестна; эксплойтов не найдено; в KEV нет.", result.Vulnerabilities[0].Description)
+	assert.Equal(t, "Unknown на 2026-09-25: EPSS нет, критичность grype неизвестна; эксплойтов не найдено; в KEV нет.", result.Vulnerabilities[0].Description)
 }
 
 // An Exploit-DB link that the vulnerability already lists is not added twice.

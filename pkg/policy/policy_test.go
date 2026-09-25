@@ -3,6 +3,7 @@ package policy
 import (
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
@@ -319,7 +320,7 @@ func TestEvaluate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			res := Evaluate(tt.match, lookup, thresholds)
+			res := Evaluate(tt.match, lookup, thresholds, time.Time{})
 			assert.Equal(t, tt.severity, res.Severity)
 			assert.Equal(t, tt.reason, res.Reason)
 		})
@@ -331,7 +332,7 @@ func TestEvaluateLinksExploitDBPages(t *testing.T) {
 	m := grype.Match{Vulnerability: grype.Vulnerability{ID: "CVE-2099-0200", Severity: "High", Risk: 40,
 		EPSS: []grype.EPSS{{CVE: "CVE-2099-0200", Score: 0.5}}}}
 
-	res := Evaluate(m, lookup, thresholds)
+	res := Evaluate(m, lookup, thresholds, time.Time{})
 
 	assert.Equal(t, []string{
 		"https://www.exploit-db.com/exploits/1",
@@ -355,10 +356,25 @@ func TestEvaluateLinksPoC(t *testing.T) {
 		RelatedVulnerabilities: []grype.RelatedVulnerability{{ID: "CVE-2025-15467", URLs: []string{"https://github.com/guiimoraes/CVE-2025-15467"}}},
 	}
 
-	res := Evaluate(m, nil, thresholds)
+	res := Evaluate(m, nil, thresholds, time.Time{})
 
 	assert.Contains(t, res.Reason, "есть PoC (")
 	assert.Equal(t, []string{"https://github.com/guiimoraes/CVE-2025-15467"}, res.Links)
+}
+
+// The date comes from asOf's own zone, not from converting it to another one: 23:30 in Moscow's
+// fixed UTC+3 zone is still 2026-09-25 there, and that is what must appear, regardless of the host
+// machine's own time zone.
+func TestEvaluateDatesTheExplanation(t *testing.T) {
+	asOf := time.Date(2026, 9, 25, 23, 30, 0, 0, time.FixedZone("MSK", 3*3600))
+	m := grype.Match{Vulnerability: grype.Vulnerability{
+		ID: "CVE-2023-45288", Severity: "High", Risk: 69.0,
+		EPSS: []grype.EPSS{{CVE: "CVE-2023-45288", Score: 0.92}},
+	}}
+
+	res := Evaluate(m, nil, thresholds, asOf)
+
+	assert.True(t, strings.HasPrefix(res.Reason, "High на 2026-09-25: "), res.Reason)
 }
 
 // The ladder compares the risk as the text shows it, with one decimal.
@@ -372,22 +388,24 @@ func TestLadderThresholds(t *testing.T) {
 	for risk, want := range cases {
 		m := grype.Match{Vulnerability: grype.Vulnerability{ID: "CVE-2099-0300", Severity: "Medium", Risk: risk,
 			EPSS: []grype.EPSS{{CVE: "CVE-2099-0300", Score: 0.1}}}}
-		assert.Equal(t, want, Evaluate(m, nil, thresholds).Severity, "risk %v", risk)
+		assert.Equal(t, want, Evaluate(m, nil, thresholds, time.Time{}).Severity, "risk %v", risk)
 	}
 }
 
 // Harbor shows the explanation in front of the description; the spec caps it at 300 characters.
-// Checked on two of the longest texts, both with a PoC link cut to 80 characters: a rescaled
-// ladder with odd thresholds, and a KEV record used by ransomware that is also malware.
+// Checked on two of the longest texts, both with a PoC link cut to 80 characters and a dated
+// explanation (the date adds 14 runes, " на YYYY-MM-DD"): a rescaled ladder with odd thresholds,
+// and a KEV record used by ransomware that is also malware.
 func TestReasonStaysWithin300Characters(t *testing.T) {
 	longPoC := "https://github.com/someone/" + strings.Repeat("a", 90) + "-poc"
+	asOf := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 
 	odd := Thresholds{Critical: 33.333333333333336, High: 22.22222222222222, Medium: 11.11111111111111}
 	ladder := Evaluate(grype.Match{Vulnerability: grype.Vulnerability{
 		ID: "ALAS2-2099-0002", Severity: "Critical", Risk: 0.1,
 		EPSS: []grype.EPSS{{CVE: "CVE-2099-1000000", Score: 0.001}, {CVE: "CVE-2099-1000001", Score: 0.99999}},
 		URLs: []string{longPoC},
-	}}, nil, odd)
+	}}, nil, odd, asOf)
 	assert.Equal(t, harbor.SevCritical, ladder.Severity)
 	assert.Contains(t, ladder.Reason, "по максимальному EPSS бюллетеня")
 	assert.Contains(t, ladder.Reason, "есть PoC (")
@@ -397,7 +415,7 @@ func TestReasonStaysWithin300Characters(t *testing.T) {
 		ID: "GHSA-9999-9999-9996", Severity: "Critical", Risk: 100, Description: "Malware in some-hijacked-package",
 		KnownExploited: []grype.KnownExploited{{CVE: "CVE-2099-1000002", DateAdded: "2099-12-31", KnownRansomwareCampaignUse: "Known"}},
 		URLs:           []string{longPoC},
-	}}, nil, thresholds)
+	}}, nil, thresholds, asOf)
 	assert.Equal(t, harbor.SevCritical, kevMalware.Severity)
 	assert.Contains(t, kevMalware.Reason, "используется вымогателями; пакет помечен как вредоносный")
 	assert.Contains(t, kevMalware.Reason, "есть PoC (")

@@ -4,6 +4,7 @@ package policy
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/grype"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/harbor"
@@ -44,9 +45,12 @@ const maxExploitLinks = 5
 //  4. or grype's own severity capped at High when it is not;
 //  5. a public exploit then raises levels below High.
 //
-// lookup may be nil: then only PoC links count as exploits. Evaluate keeps no state, so it is safe
-// for concurrent use as long as lookup is.
-func Evaluate(m grype.Match, lookup ExploitLookup, t Thresholds) Result {
+// lookup may be nil: then only PoC links count as exploits. asOf dates the explanation ("High на
+// 2026-09-25: …"): Harbor keeps a finding's description only from its first scan, so a later scan
+// updates only severity, fixed version, CVSS and status, and the explanation can outlive the level
+// it explains. Pass the zero time.Time for the undated form ("High: …"), e.g. from a caller with
+// no clock. Evaluate keeps no state, so it is safe for concurrent use as long as lookup is.
+func Evaluate(m grype.Match, lookup ExploitLookup, t Thresholds, asOf time.Time) Result {
 	f := collectFacts(m, lookup)
 	isMalware, source := f.malware()
 	var r reason
@@ -61,7 +65,7 @@ func Evaluate(m grype.Match, lookup ExploitLookup, t Thresholds) Result {
 	default:
 		r = exploitRule(f, baseRule(f, t))
 	}
-	return Result{Severity: r.level, Reason: r.String(), Links: resultLinks(f)}
+	return Result{Severity: r.level, Reason: r.text(asOf), Links: resultLinks(f)}
 }
 
 func kevRule(f facts) reason {
