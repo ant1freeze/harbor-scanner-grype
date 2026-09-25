@@ -12,7 +12,7 @@ import (
 
 func TestCalculateRiskBasedSeverity(t *testing.T) {
 	// Test configuration with custom thresholds for formula mode
-	config := etc.RiskConfig{
+	config := etc.RiskConfig{Risk: etc.RiskConfigData{
 		Mode:    "formula",
 		Enabled: true,
 		Thresholds: etc.RiskThresholds{
@@ -25,7 +25,7 @@ func TestCalculateRiskBasedSeverity(t *testing.T) {
 			EPSS: 0.1,
 			CVSS: 5.0,
 		},
-	}
+	}}
 
 	transformer := &transformer{
 		clock:  &SystemClock{},
@@ -192,14 +192,14 @@ func TestCalculateRiskBasedSeverity(t *testing.T) {
 }
 
 func TestMapRiskToSeverity(t *testing.T) {
-	config := etc.RiskConfig{
+	config := etc.RiskConfig{Risk: etc.RiskConfigData{
 		Thresholds: etc.RiskThresholds{
 			Critical: 75.0,
 			High:     50.0,
 			Medium:   25.0,
 			Low:      10.0,
 		},
-	}
+	}}
 
 	transformer := &transformer{
 		config: config,
@@ -231,7 +231,7 @@ func TestMapRiskToSeverity(t *testing.T) {
 
 func TestCalculateCVSSBasedSeverity(t *testing.T) {
 	// Test configuration with CVSS thresholds
-	config := etc.RiskConfig{
+	config := etc.RiskConfig{Risk: etc.RiskConfigData{
 		Mode:    "cvss",
 		Enabled: true,
 		CVSSThresholds: etc.CVSSThresholds{
@@ -243,7 +243,7 @@ func TestCalculateCVSSBasedSeverity(t *testing.T) {
 		Defaults: etc.RiskDefaults{
 			CVSS: 5.0,
 		},
-	}
+	}}
 
 	transformer := &transformer{
 		clock:  &SystemClock{},
@@ -356,14 +356,14 @@ func TestCalculateCVSSBasedSeverity(t *testing.T) {
 }
 
 func TestMapCVSSToSeverity(t *testing.T) {
-	config := etc.RiskConfig{
+	config := etc.RiskConfig{Risk: etc.RiskConfigData{
 		CVSSThresholds: etc.CVSSThresholds{
 			Critical: 9.0,
 			High:     7.0,
 			Medium:   4.0,
 			Low:      0.1,
 		},
-	}
+	}}
 
 	transformer := &transformer{
 		config: config,
@@ -394,7 +394,7 @@ func TestMapCVSSToSeverity(t *testing.T) {
 }
 
 func TestTransformWithRiskCalculation(t *testing.T) {
-	config := etc.RiskConfig{
+	config := etc.RiskConfig{Risk: etc.RiskConfigData{
 		Mode:    "formula",
 		Enabled: true,
 		Thresholds: etc.RiskThresholds{
@@ -407,7 +407,7 @@ func TestTransformWithRiskCalculation(t *testing.T) {
 			EPSS: 0.1,
 			CVSS: 5.0,
 		},
-	}
+	}}
 
 	transformer := NewTransformer(&SystemClock{}, config)
 
