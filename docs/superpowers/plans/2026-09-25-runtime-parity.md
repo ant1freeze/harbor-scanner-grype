@@ -1989,3 +1989,8 @@ docker rmi localhost:5001/library/redis:7-alpine
   проверка совпадения риска ловит расхождение только на свежих отчётах.
 - Пока план 2 не выполнен, образ из `main` собирается из закоммиченного бинарника без режима `policy`: в
   описании PR это нужно сказать.
+- `pkg/scan/controller.go` сейчас пишет в лог на уровне Info заголовок авторизации реестра целиком:
+  `registry_auth` в «Received scan request from Harbor», `authorization` в «Processing authorization from
+  Harbor» и `credentials` в «Authorization type detected». При переписывании выбора учётных данных убрать все
+  три поля (оставить только тип: Basic, Bearer или пусто) и добавить тест, что в выводе лога нет ни
+  заголовка, ни токена.
