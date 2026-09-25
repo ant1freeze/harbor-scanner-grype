@@ -44,6 +44,7 @@ func TestEstimateRiskKeepsGrypeValueWhenFirstEPSSIsHighest(t *testing.T) {
 	est := estimateRisk(v)
 	assert.Equal(t, 45.0, est.value)
 	assert.False(t, est.rescaled)
+	assert.Equal(t, "CVE-2099-1001", est.epss.CVE)
 }
 
 func TestEstimateRiskRescalesAdvisoriesToHighestEPSS(t *testing.T) {
@@ -53,6 +54,32 @@ func TestEstimateRiskRescalesAdvisoriesToHighestEPSS(t *testing.T) {
 	est := estimateRisk(v)
 	assert.InDelta(t, 45.0, est.value, 1e-9)
 	assert.True(t, est.rescaled)
-	assert.Equal(t, 1.5, est.grype)
+	assert.Equal(t, 1.5, est.reported)
 	assert.Equal(t, "CVE-2099-1001", est.epss.CVE)
+}
+
+func TestEstimateRiskPicksHighestEPSSAnywhereInTheList(t *testing.T) {
+	v := grype.Vulnerability{ID: "ELSA-2099-0001", Severity: "High", Risk: 1.5,
+		EPSS: []grype.EPSS{{CVE: "CVE-2099-1000", Score: 0.02}, {CVE: "CVE-2099-1001", Score: 0.60}, {CVE: "CVE-2099-1002", Score: 0.10}}}
+	est := estimateRisk(v)
+	assert.InDelta(t, 45.0, est.value, 1e-9)
+	assert.Equal(t, "CVE-2099-1001", est.epss.CVE)
+}
+
+func TestEstimateRiskKeepsGrypeValueWhenFirstTiesWithHighest(t *testing.T) {
+	v := grype.Vulnerability{Severity: "High", Risk: 45.0,
+		EPSS: []grype.EPSS{{CVE: "CVE-2099-1000", Score: 0.60}, {CVE: "CVE-2099-1001", Score: 0.60}}}
+	est := estimateRisk(v)
+	assert.False(t, est.rescaled)
+	assert.Equal(t, "CVE-2099-1000", est.epss.CVE)
+}
+
+func TestEstimateRiskKeepsGrypeValueForKEV(t *testing.T) {
+	// grype: threat 1 × 0.75 × KEV 1.05 = 78.75; EPSS takes no part.
+	v := grype.Vulnerability{Severity: "High", Risk: 78.75,
+		KnownExploited: []grype.KnownExploited{{CVE: "CVE-2099-1000"}},
+		EPSS:           []grype.EPSS{{CVE: "CVE-2099-1000", Score: 0.02}, {CVE: "CVE-2099-1001", Score: 0.60}}}
+	est := estimateRisk(v)
+	assert.Equal(t, 78.75, est.value)
+	assert.False(t, est.rescaled)
 }
