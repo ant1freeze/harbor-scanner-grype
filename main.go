@@ -86,7 +86,7 @@ func main() {
 	}, exploits)
 
 	// Create controller
-	controller := scan.NewController(store, grypeWrapper, transformer)
+	controller := scan.NewController(store, grypeWrapper, transformer, config.Registry)
 
 	// Create enqueuer
 	enqueuer := queue.NewEnqueuer(config.JobQueue, rdb, store)
