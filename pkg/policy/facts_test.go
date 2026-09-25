@@ -135,36 +135,67 @@ func TestMalware(t *testing.T) {
 
 // TestMalwareKnownAdvisories covers advisories whose titles match none of malwarePrefixes: they are
 // only caught through knownMalwareAdvisories, looked up by the finding's own vulnerability id
-// (f.vuln.ID) — never by the CVEs it merely mentions.
+// (f.vuln.ID), and only for GitHub advisory findings (Namespace "github:...").
 func TestMalwareKnownAdvisories(t *testing.T) {
-	restClient := facts{vuln: grype.Vulnerability{ID: "GHSA-333g-rpr4-7hxq", Description: "rest-client Gem Contains Malicious Code"}}
+	restClient := facts{vuln: grype.Vulnerability{
+		ID: "GHSA-333g-rpr4-7hxq", Namespace: "github:language:ruby", Description: "rest-client Gem Contains Malicious Code",
+	}}
 	ok, source := restClient.malware()
 	assert.True(t, ok)
 	assert.Equal(t, "github", source)
 
 	// With SCANNER_GRYPE_BY_CVE=true grype reports the CVE id as the finding's own vulnerability id
-	// instead of the GHSA id; knownMalwareAdvisories carries that CVE alias too, so the same
-	// f.vuln.ID lookup still matches.
-	byCVE := grype.Match{Vulnerability: grype.Vulnerability{ID: "CVE-2019-15224", Description: "rest-client Gem Contains Malicious Code"}}
+	// instead of the GHSA id, but keeps the github: namespace; knownMalwareAdvisories carries that
+	// CVE alias too, so the same f.vuln.ID lookup still matches.
+	byCVE := grype.Match{Vulnerability: grype.Vulnerability{
+		ID: "CVE-2019-15224", Namespace: "github:language:ruby", Description: "rest-client Gem Contains Malicious Code",
+	}}
 	f := collectFacts(byCVE, nil)
 	ok, source = f.malware()
 	assert.True(t, ok)
 	assert.Equal(t, "github", source)
 
-	notListed := facts{vuln: grype.Vulnerability{ID: "GHSA-qqqq-qqqq-qqqq", Description: "An ordinary vulnerability in some package"}}
+	// Pin the namespace guard: the very same id and description, without the github: namespace,
+	// must not be flagged.
+	noNamespace := grype.Match{Vulnerability: grype.Vulnerability{
+		ID: "CVE-2019-15224", Description: "rest-client Gem Contains Malicious Code",
+	}}
+	f = collectFacts(noNamespace, nil)
+	ok, _ = f.malware()
+	assert.False(t, ok, "the map is only consulted for github: namespace findings")
+
+	notListed := facts{vuln: grype.Vulnerability{
+		ID: "GHSA-qqqq-qqqq-qqqq", Namespace: "github:language:ruby", Description: "An ordinary vulnerability in some package",
+	}}
 	ok, _ = notListed.malware()
 	assert.False(t, ok, "a GHSA id absent from knownMalwareAdvisories is not malware")
 
-	// A distro advisory that merely mentions a malware CVE (e.g. via EPSS data on a bundled CVE) is
-	// not itself the malicious artifact: only the finding's own id is looked up, not f.cves.
-	distro := grype.Match{Vulnerability: grype.Vulnerability{
-		ID:          "DSA-9999-1",
-		Description: "An ordinary vulnerability in some package",
-		EPSS:        []grype.EPSS{{CVE: "CVE-2019-15224"}},
+	// The real case the reviewer reproduced with grype: Ubuntu's ruby-activesupport finding on
+	// 18.10 is reported under the CVE id alone, in the ubuntu: namespace, and that same CVE
+	// (GHSA-2j55-pcw5-x4h2's alias) is a map key for an unrelated GitHub advisory.
+	ubuntu := facts{vuln: grype.Vulnerability{
+		ID:          "CVE-2018-3779",
+		Namespace:   "ubuntu:distro:ubuntu:18.10",
+		Description: "An ordinary vulnerability in ruby-activesupport",
 	}}
-	f = collectFacts(distro, nil)
-	ok, _ = f.malware()
-	assert.False(t, ok, "mentioning a malware CVE does not make the finding itself malware")
+	ok, _ = ubuntu.malware()
+	assert.False(t, ok, "a distro finding is keyed by the CVE id itself and must not be flagged even though the same CVE is a map key")
+}
+
+func TestMalwareRustSecWording(t *testing.T) {
+	removedFor := facts{vuln: grype.Vulnerability{Description: "`sha-rust` was removed from crates.io for malicious code"}}
+	ok, source := removedFor.malware()
+	assert.True(t, ok)
+	assert.Equal(t, "github", source)
+
+	removedDueTo := facts{vuln: grype.Vulnerability{Description: "`time-sync` was removed from crates.io due to malicious code"}}
+	ok, source = removedDueTo.malware()
+	assert.True(t, ok)
+	assert.Equal(t, "github", source)
+
+	authorRequest := facts{vuln: grype.Vulnerability{Description: "`foo` was removed from crates.io at the author's request"}}
+	ok, _ = authorRequest.malware()
+	assert.False(t, ok, "removal for an ordinary reason is not malware")
 }
 
 func TestKnownMalwareAdvisoriesKeysAreWellFormed(t *testing.T) {

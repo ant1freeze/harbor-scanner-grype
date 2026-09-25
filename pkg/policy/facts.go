@@ -48,16 +48,22 @@ var malwarePrefixes = []string{
 }
 
 // malware reports whether the finding is a malicious package rather than a flaw: GitHub publishes
-// such advisories with one of the fixed openings in malwarePrefixes; knownMalwareAdvisories lists,
-// by the vulnerability id grype reports, the advisories whose titles don't follow any of those
-// openings; and CWE-506 is embedded malicious code.
+// such advisories with one of the fixed openings in malwarePrefixes, or — for crates pulled from
+// crates.io — with RustSec's "removed from crates.io ... malicious code" wording; for the rest,
+// knownMalwareAdvisories lists, by the vulnerability id grype reports, the GitHub advisories whose
+// titles follow neither, but only for GitHub advisory findings (Namespace "github:..."): grype keys
+// a distro finding by the CVE id itself, and that id can collide with an unrelated map entry. CWE-506
+// is embedded malicious code.
 func (f facts) malware() (bool, string) {
 	for _, p := range malwarePrefixes {
 		if strings.HasPrefix(f.vuln.Description, p) {
 			return true, "github"
 		}
 	}
-	if knownMalwareAdvisories[f.vuln.ID] {
+	if strings.Contains(f.vuln.Description, "removed from crates.io") && strings.Contains(f.vuln.Description, "malicious code") {
+		return true, "github"
+	}
+	if strings.HasPrefix(f.vuln.Namespace, "github:") && knownMalwareAdvisories[f.vuln.ID] {
 		return true, "github"
 	}
 	for _, c := range f.vuln.CWEs {
