@@ -1,6 +1,9 @@
 package scan
 
 import (
+	"bytes"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,4 +235,76 @@ func TestTransformReadsClockOncePerReport(t *testing.T) {
 	for _, item := range result.Vulnerabilities {
 		assert.Contains(t, item.Description, "на 2026-09-25")
 	}
+}
+
+// captureLogs redirects the default slog logger to a buffer for the rest of the test, as
+// pkg/exploitdb's watcher tests do. The tests in this package are not parallel, so swapping the
+// process-wide default logger is safe.
+func captureLogs(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	old := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(old) })
+	return &buf
+}
+
+const noRiskWarning = "grype JSON has EPSS but no risk score"
+
+// reportWithoutRisk is what a grype older than 0.117.0 gives: EPSS, but no "risk", which reads as 0.
+func reportWithoutRisk() grype.Report {
+	return grype.Report{Matches: []grype.Match{
+		{
+			Vulnerability: grype.Vulnerability{ID: "CVE-2023-45288", Severity: "High",
+				EPSS: []grype.EPSS{{CVE: "CVE-2023-45288", Score: 0.92}}},
+			Artifact: grype.Artifact{Name: "stdlib", Version: "go1.21.0"},
+		},
+		{
+			Vulnerability: grype.Vulnerability{ID: "CVE-2025-15467", Severity: "Critical",
+				EPSS: []grype.EPSS{{CVE: "CVE-2025-15467", Score: 0.524}}},
+			Artifact: grype.Artifact{Name: "libssl3", Version: "3.5.4-r0"},
+		},
+	}}
+}
+
+// Without grype's risk the ladder would rate every finding with EPSS Low; one warning per report,
+// naming the first such finding, says why.
+func TestTransformPolicyModeWarnsOnceWhenRiskIsMissing(t *testing.T) {
+	buf := captureLogs(t)
+
+	policyTransformer(nil).Transform("application/vnd.security.vulnerability.report", testRequest, reportWithoutRisk())
+
+	assert.Equal(t, 1, strings.Count(buf.String(), noRiskWarning), buf.String())
+	assert.Contains(t, buf.String(), "vulnerability=CVE-2023-45288")
+}
+
+func TestTransformDoesNotWarnWhenRiskIsNotMissing(t *testing.T) {
+	t.Run("normal policy-mode report", func(t *testing.T) {
+		buf := captureLogs(t)
+		report := grype.Report{Matches: []grype.Match{
+			{Vulnerability: grype.Vulnerability{ID: "CVE-2023-45288", Severity: "High", Risk: 69.0,
+				EPSS: []grype.EPSS{{CVE: "CVE-2023-45288", Score: 0.92}}}},
+			// the lowest risk seen next to EPSS in grype 0.117.0 reports
+			{Vulnerability: grype.Vulnerability{ID: "CVE-2099-0600", Severity: "Negligible", Risk: 0.00655,
+				EPSS: []grype.EPSS{{CVE: "CVE-2099-0600", Score: 0.00131}}}},
+			// no EPSS, or an EPSS of 0: grype 0.117.0 gives these a risk of 0 too
+			{Vulnerability: grype.Vulnerability{ID: "CVE-2099-0601", Severity: "High"}},
+			{Vulnerability: grype.Vulnerability{ID: "CVE-2099-0602", Severity: "High",
+				EPSS: []grype.EPSS{{CVE: "CVE-2099-0602", Score: 0}}}},
+		}}
+
+		policyTransformer(nil).Transform("application/vnd.security.vulnerability.report", testRequest, report)
+
+		assert.NotContains(t, buf.String(), noRiskWarning)
+	})
+
+	t.Run("formula mode does not use grype's risk", func(t *testing.T) {
+		buf := captureLogs(t)
+		config := etc.RiskConfig{Risk: etc.RiskConfigData{Enabled: true, Mode: "formula"}}
+		tr := NewTransformer(fixedClock{time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}, config, policy.Thresholds{}, nil)
+
+		tr.Transform("application/vnd.security.vulnerability.report", testRequest, reportWithoutRisk())
+
+		assert.NotContains(t, buf.String(), noRiskWarning)
+	})
 }

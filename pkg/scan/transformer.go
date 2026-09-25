@@ -2,6 +2,7 @@ package scan
 
 import (
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"time"
@@ -60,6 +61,10 @@ func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequ
 		return scanReport
 	}
 
+	if t.config.Risk.PolicyMode() {
+		warnIfRiskMissing(report.Matches)
+	}
+
 	// One Harbor item per grype match: a CVE found in libcrypto3, libssl3 and openssl is three
 	// items, each with its own package. now is read once, here, rather than once per match, so a
 	// policy-mode item's dated explanation (see toItem) agrees across every item of one report.
@@ -76,6 +81,21 @@ func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequ
 	scanReport.Vulnerabilities = vulnerabilities
 	scanReport.Severity = maxSeverity
 	return scanReport
+}
+
+// warnIfRiskMissing logs one warning per report when a match has EPSS but no risk score. grype
+// 0.117.0 gives every finding whose EPSS is above 0 a risk above 0 (the lowest seen is 0.0066), so
+// a zero risk there means grype's JSON has no "risk" field, which reads as 0: the policy ladder
+// would then rate every such finding Low.
+func warnIfRiskMissing(matches []grype.Match) {
+	for _, m := range matches {
+		v := m.Vulnerability
+		if len(v.EPSS) > 0 && v.EPSS[0].Score > 0 && v.Risk == 0 {
+			slog.Warn("grype JSON has EPSS but no risk score; the policy ladder needs grype 0.117.0 or newer",
+				slog.String("vulnerability", v.ID))
+			return
+		}
+	}
 }
 
 // toItem builds one Harbor item from a grype match. asOf is the day (in its own time zone) that
