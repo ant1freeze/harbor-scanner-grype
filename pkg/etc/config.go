@@ -158,9 +158,9 @@ type RiskConfigData struct {
 func (r RiskConfigData) PolicyMode() bool { return r.Enabled && r.Mode == "policy" }
 
 // validate normalises the mode combined from risk-config.yaml and SCANNER_RISK_* overrides, then
-// checks it. When risk is disabled, the mode and the ten numbers below are never read, so neither
-// is checked: a config that used to start (e.g. no mode set, or a differently-cased mode, while
-// disabled) must keep starting.
+// checks it. When risk is disabled, the mode and the ten numbers of riskNumbers are never read, so
+// neither is checked: a config that used to start (e.g. no mode set, or a differently-cased mode,
+// while disabled) must keep starting.
 func (r *RiskConfigData) validate() error {
 	r.Mode = strings.ToLower(strings.TrimSpace(r.Mode))
 	if !r.Enabled {
@@ -171,28 +171,37 @@ func (r *RiskConfigData) validate() error {
 	default:
 		return fmt.Errorf("risk mode %q (SCANNER_RISK_MODE or risk.mode in risk-config.yaml) must be formula, cvss or policy", r.Mode)
 	}
-	numbers := []struct {
-		env   string
-		yaml  string
-		value float64
-	}{
-		{"SCANNER_RISK_CRITICAL", "risk.thresholds.critical", r.Thresholds.Critical},
-		{"SCANNER_RISK_HIGH", "risk.thresholds.high", r.Thresholds.High},
-		{"SCANNER_RISK_MEDIUM", "risk.thresholds.medium", r.Thresholds.Medium},
-		{"SCANNER_RISK_LOW", "risk.thresholds.low", r.Thresholds.Low},
-		{"SCANNER_RISK_CVSS_CRITICAL", "risk.cvss_thresholds.critical", r.CVSSThresholds.Critical},
-		{"SCANNER_RISK_CVSS_HIGH", "risk.cvss_thresholds.high", r.CVSSThresholds.High},
-		{"SCANNER_RISK_CVSS_MEDIUM", "risk.cvss_thresholds.medium", r.CVSSThresholds.Medium},
-		{"SCANNER_RISK_CVSS_LOW", "risk.cvss_thresholds.low", r.CVSSThresholds.Low},
-		{"SCANNER_RISK_DEFAULT_EPSS", "risk.defaults.epss", r.Defaults.EPSS},
-		{"SCANNER_RISK_DEFAULT_CVSS", "risk.defaults.cvss", r.Defaults.CVSS},
-	}
-	for _, n := range numbers {
-		if math.IsNaN(n.value) || math.IsInf(n.value, 0) {
-			return fmt.Errorf("%s (or %s in risk-config.yaml) must be a finite number, got %v", n.env, n.yaml, n.value)
+	for _, n := range riskNumbers(r) {
+		if v := *n.ptr; math.IsNaN(v) || math.IsInf(v, 0) {
+			return fmt.Errorf("%s (or %s in risk-config.yaml) must be a finite number, got %v", n.env, n.yamlPath, v)
 		}
 	}
 	return nil
+}
+
+// riskNumber is one of the ten numeric risk settings: its SCANNER_RISK_* variable, its path in
+// risk-config.yaml, and the field of RiskConfigData it sets.
+type riskNumber struct {
+	env      string
+	yamlPath string
+	ptr      *float64
+}
+
+// riskNumbers lists the numeric risk settings of r, for applyRiskEnv, which reads them from the
+// environment, and validate, which checks them.
+func riskNumbers(r *RiskConfigData) []riskNumber {
+	return []riskNumber{
+		{"SCANNER_RISK_CRITICAL", "risk.thresholds.critical", &r.Thresholds.Critical},
+		{"SCANNER_RISK_HIGH", "risk.thresholds.high", &r.Thresholds.High},
+		{"SCANNER_RISK_MEDIUM", "risk.thresholds.medium", &r.Thresholds.Medium},
+		{"SCANNER_RISK_LOW", "risk.thresholds.low", &r.Thresholds.Low},
+		{"SCANNER_RISK_CVSS_CRITICAL", "risk.cvss_thresholds.critical", &r.CVSSThresholds.Critical},
+		{"SCANNER_RISK_CVSS_HIGH", "risk.cvss_thresholds.high", &r.CVSSThresholds.High},
+		{"SCANNER_RISK_CVSS_MEDIUM", "risk.cvss_thresholds.medium", &r.CVSSThresholds.Medium},
+		{"SCANNER_RISK_CVSS_LOW", "risk.cvss_thresholds.low", &r.CVSSThresholds.Low},
+		{"SCANNER_RISK_DEFAULT_EPSS", "risk.defaults.epss", &r.Defaults.EPSS},
+		{"SCANNER_RISK_DEFAULT_CVSS", "risk.defaults.cvss", &r.Defaults.CVSS},
+	}
 }
 
 type RiskThresholds struct {
@@ -290,31 +299,16 @@ func applyRiskEnv(r *RiskConfigData) error {
 	if v := strings.TrimSpace(os.Getenv("SCANNER_RISK_MODE")); v != "" {
 		r.Mode = v
 	}
-	numbers := []struct {
-		name string
-		dst  *float64
-	}{
-		{"SCANNER_RISK_CRITICAL", &r.Thresholds.Critical},
-		{"SCANNER_RISK_HIGH", &r.Thresholds.High},
-		{"SCANNER_RISK_MEDIUM", &r.Thresholds.Medium},
-		{"SCANNER_RISK_LOW", &r.Thresholds.Low},
-		{"SCANNER_RISK_CVSS_CRITICAL", &r.CVSSThresholds.Critical},
-		{"SCANNER_RISK_CVSS_HIGH", &r.CVSSThresholds.High},
-		{"SCANNER_RISK_CVSS_MEDIUM", &r.CVSSThresholds.Medium},
-		{"SCANNER_RISK_CVSS_LOW", &r.CVSSThresholds.Low},
-		{"SCANNER_RISK_DEFAULT_EPSS", &r.Defaults.EPSS},
-		{"SCANNER_RISK_DEFAULT_CVSS", &r.Defaults.CVSS},
-	}
-	for _, n := range numbers {
-		v := strings.TrimSpace(os.Getenv(n.name))
+	for _, n := range riskNumbers(r) {
+		v := strings.TrimSpace(os.Getenv(n.env))
 		if v == "" {
 			continue
 		}
 		x, err := strconv.ParseFloat(v, 64)
 		if err != nil {
-			return fmt.Errorf("%s: %w", n.name, err)
+			return fmt.Errorf("%s: %w", n.env, err)
 		}
-		*n.dst = x
+		*n.ptr = x
 	}
 	return nil
 }

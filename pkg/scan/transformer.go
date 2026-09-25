@@ -3,11 +3,11 @@ package scan
 import (
 	"fmt"
 	"log/slog"
-	"regexp"
 	"slices"
 	"time"
 
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/etc"
+	"github.com/aquasecurity/harbor-scanner-grype/pkg/exploitdb"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/grype"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/harbor"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/http/api"
@@ -152,39 +152,24 @@ func withReason(reason, description string) string {
 	return reason + " — " + description
 }
 
-// exploitDBIDPattern captures an Exploit-DB exploit page's numeric id regardless of scheme,
-// "www." or a trailing slash: it matches both "https://www.exploit-db.com/exploits/41855" and
-// "http://exploit-db.com/exploits/41855/".
-var exploitDBIDPattern = regexp.MustCompile(`(?i)exploit-db\.com/exploits/(\d+)`)
-
-// exploitDBID returns the numeric Exploit-DB exploit id in link, or "" when link is not an
-// Exploit-DB exploit page.
-func exploitDBID(link string) string {
-	m := exploitDBIDPattern.FindStringSubmatch(link)
-	if m == nil {
-		return ""
-	}
-	return m[1]
-}
-
 // appendMissing merges extra into links without duplicates, and never returns nil: a policy-mode
 // item with no links then reports "links": [] rather than "links": null. The vulnerability
 // database and our own links write an Exploit-DB link in different forms (trailing slash, http vs
-// https, "www." or not), so those are deduped by numeric id; every other link is deduped by exact
-// string match.
+// https, "www." or not), so those are deduped by numeric id (exploitdb.IDFromURL); every other
+// link is deduped by exact string match.
 func appendMissing(links, extra []string) []string {
 	out := make([]string, 0, len(links)+len(extra))
 	out = append(out, links...)
 
 	ids := make(map[string]bool, len(out))
 	for _, link := range out {
-		if id := exploitDBID(link); id != "" {
+		if id, ok := exploitdb.IDFromURL(link); ok {
 			ids[id] = true
 		}
 	}
 
 	for _, link := range extra {
-		if id := exploitDBID(link); id != "" {
+		if id, ok := exploitdb.IDFromURL(link); ok {
 			if ids[id] {
 				continue
 			}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aquasecurity/harbor-scanner-grype/pkg/exploitdb"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/grype"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/harbor"
 )
@@ -224,7 +225,7 @@ func exploitLinks(ids []string) []string {
 		if len(links) == maxExploitLinks {
 			break
 		}
-		links = append(links, "https://www.exploit-db.com/exploits/"+id)
+		links = append(links, exploitdb.ExploitURL(id))
 	}
 	return links
 }

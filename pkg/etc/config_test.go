@@ -373,3 +373,43 @@ func TestRiskNumbersMustBeFinite(t *testing.T) {
 		})
 	}
 }
+
+// Each SCANNER_RISK_* number sets its own field and is reported under its own variable and
+// risk-config.yaml path when it is not a number, or not a finite one.
+func TestRiskNumbersReachTheirFields(t *testing.T) {
+	cases := []struct {
+		env, yamlPath string
+		field         func(RiskConfigData) float64
+	}{
+		{"SCANNER_RISK_CRITICAL", "risk.thresholds.critical", func(r RiskConfigData) float64 { return r.Thresholds.Critical }},
+		{"SCANNER_RISK_HIGH", "risk.thresholds.high", func(r RiskConfigData) float64 { return r.Thresholds.High }},
+		{"SCANNER_RISK_MEDIUM", "risk.thresholds.medium", func(r RiskConfigData) float64 { return r.Thresholds.Medium }},
+		{"SCANNER_RISK_LOW", "risk.thresholds.low", func(r RiskConfigData) float64 { return r.Thresholds.Low }},
+		{"SCANNER_RISK_CVSS_CRITICAL", "risk.cvss_thresholds.critical", func(r RiskConfigData) float64 { return r.CVSSThresholds.Critical }},
+		{"SCANNER_RISK_CVSS_HIGH", "risk.cvss_thresholds.high", func(r RiskConfigData) float64 { return r.CVSSThresholds.High }},
+		{"SCANNER_RISK_CVSS_MEDIUM", "risk.cvss_thresholds.medium", func(r RiskConfigData) float64 { return r.CVSSThresholds.Medium }},
+		{"SCANNER_RISK_CVSS_LOW", "risk.cvss_thresholds.low", func(r RiskConfigData) float64 { return r.CVSSThresholds.Low }},
+		{"SCANNER_RISK_DEFAULT_EPSS", "risk.defaults.epss", func(r RiskConfigData) float64 { return r.Defaults.EPSS }},
+		{"SCANNER_RISK_DEFAULT_CVSS", "risk.defaults.cvss", func(r RiskConfigData) float64 { return r.Defaults.CVSS }},
+	}
+	for _, c := range cases {
+		t.Run(c.env, func(t *testing.T) {
+			clearScannerEnv(t)
+			t.Setenv("SCANNER_RISK_ENABLED", "true")
+			t.Setenv("SCANNER_RISK_MODE", "formula")
+
+			t.Setenv(c.env, "42.5")
+			config, err := GetConfig()
+			require.NoError(t, err)
+			assert.Equal(t, 42.5, c.field(config.Risk.Risk))
+
+			t.Setenv(c.env, "abc")
+			_, err = GetConfig()
+			assert.EqualError(t, err, c.env+`: strconv.ParseFloat: parsing "abc": invalid syntax`)
+
+			t.Setenv(c.env, "NaN")
+			_, err = GetConfig()
+			assert.EqualError(t, err, c.env+" (or "+c.yamlPath+" in risk-config.yaml) must be a finite number, got NaN")
+		})
+	}
+}
