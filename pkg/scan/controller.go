@@ -66,7 +66,7 @@ func (c *controller) scan(ctx context.Context, scanJobKey job.ScanJobKey, req *h
 		return xerrors.Errorf("updating scan job status: %v", err)
 	}
 
-	imageRef, nonSSL, err := req.GetImageRef()
+	imageRef, nonSSL, err := req.GetImageRef(nil)
 	if err != nil {
 		return err
 	}
