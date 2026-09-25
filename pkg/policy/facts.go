@@ -50,8 +50,8 @@ type facts struct {
 	cves     []string
 	exploits []string // Exploit-DB ids
 	poc      string   // first link to a proof of concept
-	network  bool     // some CVSS vector has AV:N
-	vectors  bool     // there is at least one CVSS vector
+	network  bool     // one of attackVectors has AV:N
+	vectors  bool     // attackVectors has at least one vector
 }
 
 func collectFacts(m grype.Match, lookup ExploitLookup) facts {
@@ -171,8 +171,10 @@ func firstPoC(m grype.Match) string {
 	return ""
 }
 
+// networkReachable reports whether the attack vector is the network: AV:N in at least one of
+// attackVectors.
 func networkReachable(m grype.Match) bool {
-	for _, c := range allCvss(m) {
+	for _, c := range attackVectors(m) {
 		if networkVector.MatchString(c.Vector) {
 			return true
 		}
@@ -180,8 +182,10 @@ func networkReachable(m grype.Match) bool {
 	return false
 }
 
+// hasVector reports whether attackVectors has at least one vector, i.e. whether the attack vector
+// is known at all.
 func hasVector(m grype.Match) bool {
-	for _, c := range allCvss(m) {
+	for _, c := range attackVectors(m) {
 		if c.Vector != "" {
 			return true
 		}
@@ -189,10 +193,21 @@ func hasVector(m grype.Match) bool {
 	return false
 }
 
-func allCvss(m grype.Match) []grype.Cvss {
-	out := append([]grype.Cvss(nil), m.Vulnerability.Cvss...)
-	for _, r := range m.RelatedVulnerabilities {
-		out = append(out, r.Cvss...)
+// attackVectors returns the CVSS entries rule 5 judges the attack vector by: those of the finding's
+// own record (the distro's or GitHub's) when it has at least one non-empty vector, else those of
+// its related records (NVD), as for ALAS and ELSA advisories, which carry no CVSS of their own. The
+// own record scores the flaw as it affects the package, while NVD may list several scores that
+// disagree: for CVE-2025-69720 in ncurses Debian has AV:L and NVD two AV:L and one AV:N, and a single
+// AV:N among them must not make a local flaw reachable over the network.
+func attackVectors(m grype.Match) []grype.Cvss {
+	for _, c := range m.Vulnerability.Cvss {
+		if c.Vector != "" {
+			return m.Vulnerability.Cvss
+		}
 	}
-	return out
+	var related []grype.Cvss
+	for _, r := range m.RelatedVulnerabilities {
+		related = append(related, r.Cvss...)
+	}
+	return related
 }

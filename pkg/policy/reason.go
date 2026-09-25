@@ -99,13 +99,14 @@ func listIDs(ids []string, limit int) string {
 	return strings.Join(ids[:limit], ", ") + fmt.Sprintf(" и ещё %d", len(ids)-limit)
 }
 
-// shortURL drops the scheme and "www." and caps the length at 80 characters, cutting only on a
-// rune boundary so it never splits a multi-byte character.
+// shortURL drops the scheme and "www." and caps the length at 80 characters: a longer link keeps
+// its first 79 and ends with the one-character ellipsis "…", never "...", so the explanation has
+// no run of dots. It cuts only on a rune boundary, so it never splits a multi-byte character.
 func shortURL(u string) string {
 	u = strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://")
 	u = strings.TrimPrefix(u, "www.")
 	if runes := []rune(u); len(runes) > 80 {
-		u = string(runes[:77]) + "..."
+		u = string(runes[:79]) + "…"
 	}
 	return u
 }

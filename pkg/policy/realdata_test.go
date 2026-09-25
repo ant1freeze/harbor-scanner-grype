@@ -71,15 +71,8 @@ func TestEvaluateExplainsEveryRealFinding(t *testing.T) {
 		assert.True(t, strings.HasPrefix(res.Reason, res.Severity.String()+" на 2026-09-25: "), res.Reason)
 		assert.True(t, strings.HasSuffix(res.Reason, "."), res.Reason)
 		assert.LessOrEqual(t, utf8.RuneCountInString(res.Reason), 300, res.Reason)
-		// shortURL marks a PoC link it cut with "..." (pinned in reason_test.go): the only dots
-		// in a row the text may hold, so only that marker is dropped before the check. The Alpine
-		// nghttp2 finding has such a link.
-		text := res.Reason
-		if poc := shortURL(firstPoC(m)); strings.HasSuffix(poc, "...") {
-			text = strings.Replace(text, poc, strings.TrimSuffix(poc, "..."), 1)
-		}
 		for _, bad := range []string{"%!", "  ", "..", "\n"} {
-			assert.NotContains(t, text, bad, res.Reason)
+			assert.NotContains(t, res.Reason, bad, res.Reason)
 		}
 	}
 }

@@ -67,19 +67,20 @@ func TestShortURL(t *testing.T) {
 	assert.Equal(t, "exploit-db.com/exploits/52134", shortURL("https://www.exploit-db.com/exploits/52134"))
 	assert.Equal(t, "exploit-db.com/exploits/1", shortURL("http://www.exploit-db.com/exploits/1"))
 	long := shortURL("https://github.com/someone/" + strings.Repeat("a", 100))
-	assert.Len(t, long, 80)
-	assert.True(t, strings.HasSuffix(long, "..."))
+	assert.Equal(t, 80, utf8.RuneCountInString(long), "80 characters; the ellipsis takes 3 bytes, so not 80 bytes")
+	assert.True(t, strings.HasSuffix(long, "…"))
+	assert.NotContains(t, long, "..", "the ellipsis is one character, not dots")
 }
 
 func TestShortURLCapsAt80Characters(t *testing.T) {
 	exact := "example.com/" + strings.Repeat("a", 68) // 80 runes
 	assert.Equal(t, exact, shortURL("https://"+exact), "80 characters are kept as is")
-	assert.Equal(t, exact[:77]+"...", shortURL("https://"+exact+"a"), "81 characters become 77 and an ellipsis")
+	assert.Equal(t, exact[:79]+"…", shortURL("https://"+exact+"a"), "81 characters become 79 and an ellipsis")
 }
 
 func TestShortURLKeepsValidUTF8(t *testing.T) {
 	long := shortURL("https://example.com/" + strings.Repeat("я", 100))
 	assert.True(t, utf8.ValidString(long))
 	assert.Equal(t, 80, utf8.RuneCountInString(long))
-	assert.True(t, strings.HasSuffix(long, "..."))
+	assert.Equal(t, "example.com/"+strings.Repeat("я", 67)+"…", long, "79 characters, cut between runes, and the ellipsis")
 }

@@ -70,12 +70,15 @@ func TestFirstPoCPrefersVulnerabilityURLs(t *testing.T) {
 }
 
 func TestNetworkReachable(t *testing.T) {
-	withVectors := func(vectors ...string) grype.Match {
+	cvssOf := func(vectors ...string) []grype.Cvss {
 		var c []grype.Cvss
 		for _, v := range vectors {
 			c = append(c, grype.Cvss{Vector: v})
 		}
-		return grype.Match{Vulnerability: grype.Vulnerability{Cvss: c}}
+		return c
+	}
+	withVectors := func(vectors ...string) grype.Match {
+		return grype.Match{Vulnerability: grype.Vulnerability{Cvss: cvssOf(vectors...)}}
 	}
 	assert.True(t, networkReachable(withVectors("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")))
 	assert.True(t, networkReachable(withVectors("AV:N/AC:L/Au:N/C:P/I:P/A:P")), "CVSS v2")
@@ -86,7 +89,27 @@ func TestNetworkReachable(t *testing.T) {
 	related := grype.Match{RelatedVulnerabilities: []grype.RelatedVulnerability{{
 		Cvss: []grype.Cvss{{Vector: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H"}},
 	}}}
-	assert.True(t, networkReachable(related), "vectors of related CVEs count")
+	assert.True(t, networkReachable(related), "without own vectors, as for ALAS and ELSA, the vectors of related records count")
+
+	// With at least one vector of its own, the finding's record alone decides.
+	const (
+		network = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+		local   = "CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H"
+	)
+	withRelated := func(own []grype.Cvss, relatedVectors ...string) grype.Match {
+		return grype.Match{
+			Vulnerability:          grype.Vulnerability{Cvss: own},
+			RelatedVulnerabilities: []grype.RelatedVulnerability{{Cvss: cvssOf(relatedVectors...)}},
+		}
+	}
+	ncurses := withRelated(cvssOf(local), local, network, local) // CVE-2025-69720: Debian AV:L; NVD two AV:L, one AV:N
+	assert.False(t, networkReachable(ncurses), "an AV:N of a related record does not override the own AV:L")
+	assert.True(t, hasVector(ncurses), "the attack vector is known: local")
+	assert.True(t, networkReachable(withRelated(cvssOf(network), local)), "the own AV:N counts")
+
+	scoreOnly := []grype.Cvss{{Metrics: grype.Metrics{BaseScore: 7.5}}}
+	assert.True(t, networkReachable(withRelated(scoreOnly, network)), "an own score without a vector leaves it to the related records")
+	assert.False(t, hasVector(grype.Match{Vulnerability: grype.Vulnerability{Cvss: scoreOnly}}), "no vector anywhere: unknown")
 }
 
 func TestMalware(t *testing.T) {
