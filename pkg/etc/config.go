@@ -30,6 +30,7 @@ type Config struct {
 	Registry   Registry
 	Risk       RiskConfig
 	Policy     Policy
+	Harbor     Harbor
 }
 
 type Grype struct {
@@ -91,8 +92,16 @@ func (c API) LogValue() slog.Value {
 }
 
 type RedisStore struct {
-	Namespace  string        `env:"SCANNER_STORE_REDIS_NAMESPACE" envDefault:"harbor.scanner.grype:data-store"`
-	ScanJobTTL time.Duration `env:"SCANNER_STORE_REDIS_SCAN_JOB_TTL" envDefault:"1h"`
+	Namespace     string        `env:"SCANNER_STORE_REDIS_NAMESPACE" envDefault:"harbor.scanner.grype:data-store"`
+	ScanJobTTL    time.Duration `env:"SCANNER_STORE_REDIS_SCAN_JOB_TTL" envDefault:"1h"`
+	PendingJobTTL time.Duration `env:"SCANNER_STORE_REDIS_PENDING_JOB_TTL,notEmpty" envDefault:"24h"`
+}
+
+// Harbor configures the adapter's view of Harbor as a client.
+type Harbor struct {
+	// PollTimeout: Harbor polls for the report of every scan it waits for. A queued scan that has not
+	// been polled for this long is skipped, because Harbor has given up on it.
+	PollTimeout time.Duration `env:"SCANNER_HARBOR_POLL_TIMEOUT,notEmpty" envDefault:"2m"`
 }
 
 type JobQueue struct {
@@ -271,6 +280,14 @@ func GetConfig() (Config, error) {
 
 	if cfg.Grype.Timeout <= 0 {
 		return cfg, fmt.Errorf("SCANNER_GRYPE_TIMEOUT must be positive, got %s", cfg.Grype.Timeout)
+	}
+
+	if cfg.RedisStore.PendingJobTTL <= 0 {
+		return cfg, fmt.Errorf("SCANNER_STORE_REDIS_PENDING_JOB_TTL must be positive, got %s", cfg.RedisStore.PendingJobTTL)
+	}
+
+	if cfg.Harbor.PollTimeout <= 0 {
+		return cfg, fmt.Errorf("SCANNER_HARBOR_POLL_TIMEOUT must be positive, got %s", cfg.Harbor.PollTimeout)
 	}
 
 	if err := cfg.Registry.validate(); err != nil {

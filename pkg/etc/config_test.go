@@ -520,6 +520,54 @@ func TestConfigRedactsSecretsInOutput(t *testing.T) {
 	assert.NotContains(t, buf.String(), "test-key-0123456789")
 }
 
+func TestQueueDefaults(t *testing.T) {
+	clearScannerEnv(t)
+	config, err := GetConfig()
+	require.NoError(t, err)
+	assert.Equal(t, 24*time.Hour, config.RedisStore.PendingJobTTL)
+	assert.Equal(t, time.Hour, config.RedisStore.ScanJobTTL)
+	assert.Equal(t, 2*time.Minute, config.Harbor.PollTimeout)
+}
+
+func TestPendingJobTTLValidation(t *testing.T) {
+	t.Run("blank errors", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_STORE_REDIS_PENDING_JOB_TTL", "")
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "SCANNER_STORE_REDIS_PENDING_JOB_TTL")
+	})
+
+	t.Run("zero errors", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_STORE_REDIS_PENDING_JOB_TTL", "0")
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "SCANNER_STORE_REDIS_PENDING_JOB_TTL must be positive")
+	})
+
+	t.Run("negative errors", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_STORE_REDIS_PENDING_JOB_TTL", "-1h")
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "SCANNER_STORE_REDIS_PENDING_JOB_TTL must be positive")
+	})
+}
+
+func TestHarborPollTimeoutValidation(t *testing.T) {
+	t.Run("blank errors", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_HARBOR_POLL_TIMEOUT", "")
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "SCANNER_HARBOR_POLL_TIMEOUT")
+	})
+
+	t.Run("zero errors", func(t *testing.T) {
+		clearScannerEnv(t)
+		t.Setenv("SCANNER_HARBOR_POLL_TIMEOUT", "0s")
+		_, err := GetConfig()
+		assert.ErrorContains(t, err, "SCANNER_HARBOR_POLL_TIMEOUT must be positive")
+	})
+}
+
 func TestLogFormat(t *testing.T) {
 	tests := []struct {
 		envValue string
