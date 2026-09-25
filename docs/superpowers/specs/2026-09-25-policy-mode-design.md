@@ -29,14 +29,94 @@ Amazon Linux (ALAS) и Oracle Linux (ELSA) всегда получают Low: д
 | Обновление базы | cron `0 0 * * *` зашит в образ | `GRYPE_DB_UPDATE_SCHEDULE`, `TZ`, `GRYPE_DB_MAX_ALLOWED_BUILT_AGE`; сканы базу не качают |
 | Очередь | — | прерванные задания возвращаются в очередь при старте |
 
-Как закрыть этап 0, решает команда:
+**Решение команды: восстанавливаем недостающее поверх main (вариант Б).** Исходников образа нет, поэтому
+образцом служит сам образ из комплекта (`harbor-scanner-grype-amd64.tar.gz`):
 
-- **А, предпочтительно.** Найти исходники, из которых собран образ, и взять их за основу.
-- **Б.** Восстановить перечисленное поверх main. Это отдельный объём работы с риском изменить поведение,
-  на которое опирается текущая установка, в первую очередь `SCANNER_REGISTRY_HOST_MAP`.
+- его скрипты `start.sh` и `update-grype-db.sh` — они переносятся как есть;
+- список переменных и их значения по умолчанию, извлечённые из бинарника;
+- имена функций из таблицы символов бинарника;
+- комментарии в `env.example`, `docker-compose.yml` и `INSTALL.md`.
 
-В обоих вариантах Dockerfile собирает коннектор из исходников в два этапа (golang:1.22, затем Alpine 3.24 с grype
-0.117.0 и syft 1.51.1). Иначе изменения в коде не попадут в образ.
+Где точное поведение бинарника неизвестно, обязательным считается поведение, описанное ниже.
+
+### 2.1 Сборка
+
+- Двухэтапный Dockerfile.
+  - Сборка: golang 1.22, `CGO_ENABLED=0`.
+  - Работа: Alpine 3.24.1, пакеты `ca-certificates curl su-exec tzdata`.
+  - grype 0.117.0 и syft 1.51.1 скачиваются с GitHub Releases с проверкой контрольных сумм, как в образе из
+    комплекта.
+- Пользователь `scanner` (uid 10000), каталоги `/home/scanner/.cache/{grype,reports}` и
+  `/var/log/grype-update.log`.
+- База уязвимостей вшивается при сборке: `grype db import`, если в контексте сборки есть `grype-db.tar.zst`,
+  иначе `grype db update`.
+- Окружение: `GRYPE_DB_AUTO_UPDATE=false`, `GRYPE_CHECK_FOR_APP_UPDATE=false`,
+  `SYFT_CHECK_FOR_APP_UPDATE=false`, `GRYPE_DB_CACHE_DIR=/home/scanner/.cache/grype`.
+- Точка входа — `start.sh`, порт 8090.
+- Готовый бинарник `scanner-grype-linux` удаляется из репозитория.
+
+### 2.2 Скрипты
+
+`start.sh` и `update-grype-db.sh` берутся из образа как есть:
+
+- записи `SCANNER_EXTRA_HOSTS` добавляются в `/etc/hosts`;
+- cron обновляет базу по `GRYPE_DB_UPDATE_SCHEDULE` с учётом `TZ` от имени `scanner`;
+- журнал обновления уходит в лог контейнера;
+- сам коннектор запускается через `su-exec scanner`.
+
+К ним добавляется работа с Exploit-DB (раздел 7).
+
+### 2.3 Настройки, которых нет в main
+
+| Переменная | По умолчанию | Назначение |
+|---|---|---|
+| `SCANNER_LOG_FORMAT` | `text` | `text`: строки key=value с временем; `json`: объект JSON на строку |
+| `SCANNER_GRYPE_TIMEOUT` | `15m` (в main `5m`) | скан дольше останавливается и считается упавшим |
+| `SCANNER_GRYPE_TMP_DIR` | `/tmp/scanner` | каталог временных файлов сканов |
+| `SCANNER_HARBOR_POLL_TIMEOUT` | `2m` | сколько ждать очередного опроса Harbor, прежде чем пропустить скан |
+| `SCANNER_STORE_REDIS_PENDING_JOB_TTL` | `24h` | срок жизни задания в очереди |
+| `SCANNER_REDIS_POOL_CONNECTION/READ/WRITE_TIMEOUT` | `5s` (в main `1s`) | таймауты Redis |
+| `SCANNER_REGISTRY_HOST_MAP` | пусто | подмена адреса реестра (2.4) |
+| `SCANNER_REGISTRY_INSECURE_USE_HTTP` | `true` | HTTP вместо HTTPS к реестру |
+| `SCANNER_REGISTRY_INSECURE_SKIP_TLS_VERIFY` | `true` | не проверять сертификат реестра |
+| `SCANNER_REGISTRY_USERNAME`, `SCANNER_REGISTRY_PASSWORD` | пусто | своя учётка для реестров из `SCANNER_REGISTRY_TRUSTED_HOSTS` (раздел 8) |
+| `SCANNER_RISK_ENABLED`, `SCANNER_RISK_MODE`, `SCANNER_RISK_CRITICAL/HIGH/MEDIUM/LOW`, `SCANNER_RISK_CVSS_CRITICAL/HIGH/MEDIUM/LOW`, `SCANNER_RISK_DEFAULT_EPSS/CVSS` | из `risk-config.yaml` | заданная переменная перекрывает значение из файла |
+
+### 2.4 Доступ к реестру
+
+- **Подмена адреса.** `SCANNER_REGISTRY_HOST_MAP` — пары `host=target` через запятую. Если хост реестра из
+  запроса Harbor совпадает с `host` (без учёта регистра, порт не сравнивается), коннектор ходит на `target`.
+  `target` без порта сохраняет порт из запроса. Работает и для сканов, и для SBOM.
+- **HTTP и TLS.** Режим берётся из `SCANNER_REGISTRY_INSECURE_*`, а не выключается всегда, как в main.
+
+### 2.5 Очередь
+
+- **Надёжная очередь.** Задания кладутся в список Redis, а не в Pub/Sub. Воркер атомарно переносит задание в
+  список «в работе» и убирает его оттуда по завершении.
+- **Возврат после остановки.** При старте всё, что осталось в «в работе», возвращается в очередь, в лог
+  пишется «Requeued interrupted scan jobs».
+- **Отметка ожидания.** При приёме задания и при каждом опросе отчёта Harbor ставится отметка «Harbor ждёт» со
+  сроком `SCANNER_HARBOR_POLL_TIMEOUT`. Перед запуском воркер её проверяет. Если отметка истекла, то есть
+  Harbor перестал ждать, скан пропускается: задание получает статус Failed с причиной, в лог пишется
+  «Scan skipped».
+- **Сроки хранения.** Задание в очереди живёт `SCANNER_STORE_REDIS_PENDING_JOB_TTL`, готовый отчёт —
+  `SCANNER_STORE_REDIS_SCAN_JOB_TTL` (1h).
+- **Остановка.** По SIGTERM воркеры не берут новые задания и дожидаются идущих сканов, пока контейнер даёт
+  время. Недоделанные остаются в «в работе» и вернутся в очередь при следующем старте.
+- **Временные файлы.** У каждого скана свой каталог внутри `SCANNER_GRYPE_TMP_DIR`, он передаётся grype и syft
+  как `TMPDIR`. При старте остатки прошлых сканов удаляются.
+- **Таймаут.** grype и syft останавливаются через `SCANNER_GRYPE_TIMEOUT`, задание получает Failed «scan timed
+  out».
+
+### 2.6 Логи и метаданные
+
+- **Формат** — по `SCANNER_LOG_FORMAT`.
+- **События сканов:** «Scan queued», «Scan started», «Scan finished» (длительность, число находок по уровням),
+  «Scan failed» (причина), «Scan skipped» (причина), а также число свободных воркеров. Учётные данные в логи
+  не попадают (раздел 8).
+- **При старте** в лог пишутся дата сборки базы grype по `grype db status` и дата файла Exploit-DB.
+- **Метаданные.** `/api/v1/metadata` отдаёт дату сборки базы в свойстве
+  `harbor.scanner-adapter/vulnerability-database-updated-at`, Harbor показывает его в списке сканеров.
 
 ## 3. Устройство
 
@@ -177,10 +257,12 @@ Critical, High, Medium, Low, Unknown. Уровень отчёта целиком
   - Без ключа или с неверным ключом — ответ 401.
   - `/probe/*` и `/metrics` открыты.
   - В Harbor при регистрации сканера выбирается авторизация Bearer или API Key.
-- **Учётные данные реестра.** Используется то, что прислал Harbor: Basic — логин и пароль, Bearer — токен
-  (grype получает его как токен), пусто — анонимный доступ.
-  - Своя учётка `SCANNER_REGISTRY_USERNAME/PASSWORD` подставляется только для реестров из
-    `SCANNER_REGISTRY_TRUSTED_HOSTS`, а для любого другого адреса из запроса — никогда.
+- **Учётные данные реестра.**
+  - Basic от Harbor — используются его логин и пароль.
+  - Bearer или пусто — как в текущем образе, подставляется своя учётка `SCANNER_REGISTRY_USERNAME/PASSWORD`,
+    но только если хост реестра есть в `SCANNER_REGISTRY_TRUSTED_HOSTS` и учётка задана.
+  - Для остальных хостов подстановки нет: Bearer передаётся grype как токен, без учётных данных образ
+    скачивается анонимно.
   - Рекомендуется учётка робота Harbor с правом pull, а не admin.
   - Жёстко прописанный в main `admin/Harbor12345` удаляется.
 - **Логи.** Заголовок авторизации, пароли и токены в лог больше не пишутся, только тип авторизации. Сейчас
