@@ -106,7 +106,7 @@ func main() {
 	controller := scan.NewController(store, grypeWrapper, transformer, config.Registry)
 
 	// Create enqueuer
-	enqueuer := queue.NewEnqueuer(config.JobQueue, rdb, store)
+	enqueuer := queue.NewEnqueuer(config.JobQueue, rdb, store, config.Harbor.PollTimeout)
 
 	// Create worker
 	worker := queue.NewWorker(config.JobQueue, rdb, controller)
