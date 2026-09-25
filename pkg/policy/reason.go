@@ -19,9 +19,9 @@ type reason struct {
 }
 
 // text renders the explanation, dated when asOf is not the zero time. Harbor keeps a finding's
-// description only from its first scan — a later scan updates only severity, fixed version, CVSS
-// and status — so the explanation can outlive the level it explains; the date lets a reader see
-// when the assessment behind it was made.
+// first description; later scans change only its level and a few other fields, so the explanation
+// can outlive the level it explains. The date lets a reader see when the assessment behind it was
+// made.
 func (r reason) text(asOf time.Time) string {
 	s := r.level.String()
 	if !asOf.IsZero() {

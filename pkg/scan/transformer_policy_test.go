@@ -27,6 +27,24 @@ type fixedClock struct{ t time.Time }
 
 func (c fixedClock) Now() time.Time { return c.t }
 
+// countingClock counts Now() calls; the first call returns first, and every later call returns a
+// day later still. A test can then tell whether Transform read the clock once for the whole
+// report (every item shares one date) or once per item (a later item would land on a different
+// date, since the clock has crossed midnight by then).
+type countingClock struct {
+	first time.Time
+	calls int
+}
+
+func (c *countingClock) Now() time.Time {
+	t := c.first
+	if c.calls > 0 {
+		t = c.first.AddDate(0, 0, c.calls)
+	}
+	c.calls++
+	return t
+}
+
 func policyTransformer(exploits policy.ExploitLookup) Transformer {
 	config := etc.RiskConfig{Risk: etc.RiskConfigData{Enabled: true, Mode: "policy"}}
 	clock := fixedClock{time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)}
@@ -190,4 +208,28 @@ func TestTransformPolicyModePoCFromRelatedRecordIsLinked(t *testing.T) {
 	require.Len(t, result.Vulnerabilities, 1)
 	assert.Contains(t, result.Vulnerabilities[0].Description, "есть PoC (")
 	assert.Equal(t, []string{"https://github.com/guiimoraes/CVE-2025-15467"}, result.Vulnerabilities[0].Links)
+}
+
+// Transform must read the clock once for the whole report, not once per item: every item of one
+// report must carry the same assessment date, and GeneratedAt must be that same, first reading.
+func TestTransformReadsClockOncePerReport(t *testing.T) {
+	config := etc.RiskConfig{Risk: etc.RiskConfigData{Enabled: true, Mode: "policy"}}
+	clock := &countingClock{first: time.Date(2026, 9, 25, 23, 59, 59, 0, time.UTC)}
+	tr := NewTransformer(clock, config, policyThresholds, nil)
+
+	vuln := grype.Vulnerability{ID: "CVE-2099-0500", Severity: "High"}
+	report := grype.Report{Matches: []grype.Match{
+		{Vulnerability: vuln, Artifact: grype.Artifact{Name: "a", Version: "1"}},
+		{Vulnerability: vuln, Artifact: grype.Artifact{Name: "b", Version: "1"}},
+		{Vulnerability: vuln, Artifact: grype.Artifact{Name: "c", Version: "1"}},
+	}}
+
+	result := tr.Transform("application/vnd.security.vulnerability.report", testRequest, report)
+
+	require.Len(t, result.Vulnerabilities, 3)
+	assert.Equal(t, 1, clock.calls, "Transform must call Now() once, not once per item")
+	assert.Equal(t, clock.first, result.GeneratedAt)
+	for _, item := range result.Vulnerabilities {
+		assert.Contains(t, item.Description, "на 2026-09-25")
+	}
 }

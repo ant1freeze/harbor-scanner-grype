@@ -26,9 +26,8 @@ type ExploitLookup interface {
 }
 
 // Result is the level of one finding, the explanation shown in Harbor, and links to evidence:
-// Exploit-DB pages for its known exploit ids, or, when the explanation instead names a PoC link
-// (no Exploit-DB ids, but a proof of concept), that PoC's own URL, so the mention in Reason is
-// clickable in Harbor.
+// Exploit-DB pages for its known exploit ids, or, when there are no Exploit-DB ids, the PoC link
+// found for it, if any, so a "PoC" named in Reason is clickable in Harbor.
 type Result struct {
 	Severity harbor.Severity
 	Reason   string
@@ -46,10 +45,10 @@ const maxExploitLinks = 5
 //  5. a public exploit then raises levels below High.
 //
 // lookup may be nil: then only PoC links count as exploits. asOf dates the explanation ("High на
-// 2026-09-25: …"): Harbor keeps a finding's description only from its first scan, so a later scan
-// updates only severity, fixed version, CVSS and status, and the explanation can outlive the level
-// it explains. Pass the zero time.Time for the undated form ("High: …"), e.g. from a caller with
-// no clock. Evaluate keeps no state, so it is safe for concurrent use as long as lookup is.
+// 2026-09-25: …"): Harbor keeps a finding's first description, and later scans change only its
+// level and a few other fields, so the explanation can outlive the level it explains. Pass the
+// zero time.Time for the undated form ("High: …"), e.g. from a caller with no clock. Evaluate
+// keeps no state, so it is safe for concurrent use as long as lookup is.
 func Evaluate(m grype.Match, lookup ExploitLookup, t Thresholds, asOf time.Time) Result {
 	f := collectFacts(m, lookup)
 	isMalware, source := f.malware()
@@ -230,9 +229,11 @@ func exploitLinks(ids []string) []string {
 	return links
 }
 
-// resultLinks are the links for Result: Exploit-DB pages first, then, only when exploitFact names
-// a PoC instead of an Exploit-DB id (no exploits and a PoC link), that PoC's own URL — otherwise
-// the mention in the reason text ("есть PoC (…)") has nothing to click through to.
+// resultLinks are the links for Result: Exploit-DB pages first, then, when there are no
+// Exploit-DB ids, the PoC link found for the finding, if any — so a "PoC" named in the reason
+// text ("есть PoC (…)") has something to click through to. This also adds the PoC link on a
+// finding whose reason never names one, e.g. a malware finding outside KEV; harmless, just an
+// extra link.
 func resultLinks(f facts) []string {
 	links := exploitLinks(f.exploits)
 	if len(f.exploits) == 0 && f.poc != "" {

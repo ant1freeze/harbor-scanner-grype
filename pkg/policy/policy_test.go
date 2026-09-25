@@ -327,10 +327,13 @@ func TestEvaluate(t *testing.T) {
 	}
 }
 
+// A PoC link is added to Links only when there are no Exploit-DB ids (see resultLinks): with
+// Exploit-DB ids present, a PoC URL among the vulnerability's own URLs must not also show up.
 func TestEvaluateLinksExploitDBPages(t *testing.T) {
 	lookup := fakeExploits{"CVE-2099-0200": {"1", "2", "3", "4", "5", "6", "7"}}
 	m := grype.Match{Vulnerability: grype.Vulnerability{ID: "CVE-2099-0200", Severity: "High", Risk: 40,
-		EPSS: []grype.EPSS{{CVE: "CVE-2099-0200", Score: 0.5}}}}
+		EPSS: []grype.EPSS{{CVE: "CVE-2099-0200", Score: 0.5}},
+		URLs: []string{"https://github.com/someone/CVE-2099-0200"}}}
 
 	res := Evaluate(m, lookup, thresholds, time.Time{})
 
@@ -362,11 +365,11 @@ func TestEvaluateLinksPoC(t *testing.T) {
 	assert.Equal(t, []string{"https://github.com/guiimoraes/CVE-2025-15467"}, res.Links)
 }
 
-// The date comes from asOf's own zone, not from converting it to another one: 23:30 in Moscow's
-// fixed UTC+3 zone is still 2026-09-25 there, and that is what must appear, regardless of the host
-// machine's own time zone.
+// The date comes from asOf's own zone, not from converting it to UTC or any other zone: 01:30 on
+// 2026-09-26 in Moscow's fixed UTC+3 zone is 22:30 on 2026-09-25 in UTC — a different date — and
+// it is the MSK date, 2026-09-26, that must appear.
 func TestEvaluateDatesTheExplanation(t *testing.T) {
-	asOf := time.Date(2026, 9, 25, 23, 30, 0, 0, time.FixedZone("MSK", 3*3600))
+	asOf := time.Date(2026, 9, 26, 1, 30, 0, 0, time.FixedZone("MSK", 3*3600))
 	m := grype.Match{Vulnerability: grype.Vulnerability{
 		ID: "CVE-2023-45288", Severity: "High", Risk: 69.0,
 		EPSS: []grype.EPSS{{CVE: "CVE-2023-45288", Score: 0.92}},
@@ -374,7 +377,7 @@ func TestEvaluateDatesTheExplanation(t *testing.T) {
 
 	res := Evaluate(m, nil, thresholds, asOf)
 
-	assert.True(t, strings.HasPrefix(res.Reason, "High на 2026-09-25: "), res.Reason)
+	assert.True(t, strings.HasPrefix(res.Reason, "High на 2026-09-26: "), res.Reason)
 }
 
 // The ladder compares the risk as the text shows it, with one decimal.
