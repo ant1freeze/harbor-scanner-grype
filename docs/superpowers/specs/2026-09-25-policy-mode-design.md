@@ -267,7 +267,7 @@ Critical, High, Medium, Low, Unknown. Уровень отчёта целиком
 | `SCANNER_POLICY_HIGH` | `30` | порог риска для High |
 | `SCANNER_POLICY_MEDIUM` | `10` | порог риска для Medium |
 | | | пороги проверяются при старте: Critical > High > Medium > 0, не больше 100, с шагом 0.1 (риск сравнивается с одним знаком после точки, более мелкий шаг ничего не меняет); иначе коннектор не стартует |
-| | | пустое значение (`SCANNER_POLICY_HIGH=` в `.env`) — ошибка старта, а не значение по умолчанию: чтобы взять значение по умолчанию, строку нужно удалить; то же для `SCANNER_EXPLOITDB_*` |
+| | | пустое значение (`SCANNER_POLICY_HIGH=` в `.env`) — ошибка старта, а не значение по умолчанию: чтобы взять значение по умолчанию, строку нужно удалить; то же для `SCANNER_EXPLOITDB_FILE` и `SCANNER_EXPLOITDB_MAX_AGE`. Пустые `SCANNER_RISK_*` считаются незаданными (значение берётся из `risk-config.yaml`), пустой `SCANNER_EXPLOITDB_URL` — адрес по умолчанию (его читает только скрипт обновления) |
 | `SCANNER_EXPLOITDB_FILE` | `/home/scanner/.cache/exploitdb/files_exploits.csv` | где лежит список Exploit-DB |
 | `SCANNER_EXPLOITDB_URL` | `https://gitlab.com/exploit-database/exploitdb/-/raw/main/files_exploits.csv` | откуда его качает cron |
 | `SCANNER_EXPLOITDB_MAX_AGE` | `336h` | после этого срока в лог пишется предупреждение; `0` — не предупреждать, отрицательное значение — ошибка старта |
