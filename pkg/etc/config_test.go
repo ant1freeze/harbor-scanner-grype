@@ -15,9 +15,10 @@ import (
 
 // clearScannerEnv removes every SCANNER_* variable from the process environment for the duration
 // of the test, so tests that call GetConfig do not depend on what happens to be set in the
-// developer's (or CI's) shell. t.Setenv registers the restore; the direct os.Unsetenv makes the
-// variable actually absent, which matters because caarlos0/env treats "absent" (envDefault
-// applies) differently from "set to empty" (notEmpty fields reject it).
+// developer's (or CI's) shell, and sets SCANNER_API_KEY, which GetConfig requires. t.Setenv
+// registers the restore; the direct os.Unsetenv makes the variable actually absent, which matters
+// because caarlos0/env treats "absent" (envDefault applies) differently from "set to empty"
+// (notEmpty fields reject it).
 func clearScannerEnv(t *testing.T) {
 	t.Helper()
 	for _, kv := range os.Environ() {
@@ -26,6 +27,7 @@ func clearScannerEnv(t *testing.T) {
 			os.Unsetenv(k)
 		}
 	}
+	t.Setenv("SCANNER_API_KEY", "test-key")
 }
 
 func TestGetConfig(t *testing.T) {
@@ -89,7 +91,8 @@ func TestGrypeConfigDefaults(t *testing.T) {
 	assert.False(t, config.SkipUpdate)
 	assert.False(t, config.OfflineScan)
 	assert.False(t, config.Insecure)
-	assert.Equal(t, 5*time.Minute, config.Timeout)
+	assert.Equal(t, 15*time.Minute, config.Timeout)
+	assert.Equal(t, "/tmp/scanner", config.TmpDir)
 	assert.False(t, config.AddCPEsIfNone)
 	assert.False(t, config.ByCVE)
 	assert.Equal(t, "json", config.Output)
@@ -412,4 +415,62 @@ func TestRiskNumbersReachTheirFields(t *testing.T) {
 			assert.EqualError(t, err, c.env+" (or "+c.yamlPath+" in risk-config.yaml) must be a finite number, got NaN")
 		})
 	}
+}
+
+func TestRegistryDefaults(t *testing.T) {
+	clearScannerEnv(t)
+	config, err := GetConfig()
+	require.NoError(t, err)
+	assert.True(t, config.Registry.InsecureUseHTTP)
+	assert.True(t, config.Registry.InsecureSkipTLSVerify)
+	assert.Empty(t, config.Registry.HostMap)
+	assert.Empty(t, config.Registry.TrustedHosts)
+	assert.Equal(t, 5*time.Second, config.RedisPool.ReadTimeout)
+	assert.Equal(t, 5*time.Second, config.RedisPool.WriteTimeout)
+	assert.Equal(t, 5*time.Second, config.RedisPool.ConnectionTimeout)
+}
+
+func TestHostMap(t *testing.T) {
+	clearScannerEnv(t)
+	t.Setenv("SCANNER_REGISTRY_HOST_MAP", "localhost=nginx:8080, Harbor.Corp.Local=harbor.corp.local:443")
+	config, err := GetConfig()
+	require.NoError(t, err)
+	assert.Equal(t, HostMap{"localhost": "nginx:8080", "harbor.corp.local": "harbor.corp.local:443"}, config.Registry.HostMap)
+}
+
+func TestHostMapRejectsMalformedPairs(t *testing.T) {
+	clearScannerEnv(t)
+	t.Setenv("SCANNER_REGISTRY_HOST_MAP", "localhost")
+	_, err := GetConfig()
+	assert.ErrorContains(t, err, "SCANNER_REGISTRY_HOST_MAP")
+}
+
+func TestTrustedHosts(t *testing.T) {
+	clearScannerEnv(t)
+	t.Setenv("SCANNER_REGISTRY_TRUSTED_HOSTS", "harbor.corp.local, core")
+	config, err := GetConfig()
+	require.NoError(t, err)
+	assert.True(t, config.Registry.Trusted("HARBOR.corp.local"))
+	assert.True(t, config.Registry.Trusted("core"))
+	assert.False(t, config.Registry.Trusted("evil.example.com"))
+	assert.False(t, config.Registry.Trusted(""))
+}
+
+func TestAPIKeyIsRequired(t *testing.T) {
+	clearScannerEnv(t)
+	t.Setenv("SCANNER_API_KEY", "")
+	os.Unsetenv("SCANNER_API_KEY")
+	_, err := GetConfig()
+	assert.ErrorContains(t, err, "SCANNER_API_KEY")
+
+	t.Setenv("SCANNER_API_KEY", "   ")
+	_, err = GetConfig()
+	assert.ErrorContains(t, err, "SCANNER_API_KEY", "a blank key is not a key")
+}
+
+func TestLogFormat(t *testing.T) {
+	t.Setenv("SCANNER_LOG_FORMAT", "JSON")
+	assert.Equal(t, "json", LogFormat())
+	t.Setenv("SCANNER_LOG_FORMAT", "")
+	assert.Equal(t, "text", LogFormat())
 }
