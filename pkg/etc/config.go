@@ -96,7 +96,8 @@ type Policy struct {
 }
 
 // validate checks the ladder thresholds: 0 < Medium < High < Critical <= 100, each with at most one
-// decimal, because the risk is compared as it is shown, with one decimal. NaN fails the comparisons.
+// decimal, because the risk is compared as it is shown, with one decimal (NaN fails the
+// comparisons), and that ExploitDBMaxAge is not negative.
 func (p Policy) validate() error {
 	if !(p.Critical > p.High && p.High > p.Medium && p.Medium > 0 && p.Critical <= 100) {
 		return fmt.Errorf("SCANNER_POLICY_CRITICAL > SCANNER_POLICY_HIGH > SCANNER_POLICY_MEDIUM > 0 and SCANNER_POLICY_CRITICAL <= 100 are required, got %v, %v, %v",
@@ -275,7 +276,7 @@ func applyRiskEnv(r *RiskConfigData) error {
 		r.Enabled = enabled
 	}
 	if v := strings.TrimSpace(os.Getenv("SCANNER_RISK_MODE")); v != "" {
-		r.Mode = strings.ToLower(v)
+		r.Mode = v
 	}
 	numbers := []struct {
 		name string

@@ -108,7 +108,7 @@ func TestPolicyDefaults(t *testing.T) {
 	}, config.Policy)
 }
 
-func TestRiskEnvOverridesFile(t *testing.T) {
+func TestRiskEnvOverridesDefaults(t *testing.T) {
 	clearScannerEnv(t)
 	// Enabled defaults to true, so setting it "false" (rather than repeating the default "true")
 	// is what proves this override is actually applied.
@@ -227,10 +227,13 @@ func chdirToTempRiskConfig(t *testing.T, yamlContent string) {
 }
 
 func TestRiskConfigYAMLPrecedence(t *testing.T) {
+	// high uses a value distinctive from the repository's own risk-config.yaml (which also has
+	// mode "formula" and high 70): otherwise this test would pass even if the temp file were
+	// never actually read.
 	chdirToTempRiskConfig(t, `risk:
   mode: "Formula"
   enabled: true
-  thresholds: {critical: 85, high: 70, medium: 50, low: 0.01}
+  thresholds: {critical: 85, high: 71.5, medium: 50, low: 0.01}
 `)
 
 	t.Run("mode is normalised from the file", func(t *testing.T) {
@@ -238,7 +241,7 @@ func TestRiskConfigYAMLPrecedence(t *testing.T) {
 		config, err := GetConfig()
 		require.NoError(t, err)
 		assert.Equal(t, "formula", config.Risk.Risk.Mode)
-		assert.Equal(t, 70.0, config.Risk.Risk.Thresholds.High)
+		assert.Equal(t, 71.5, config.Risk.Risk.Thresholds.High)
 	})
 
 	t.Run("SCANNER_RISK_HIGH overrides the file", func(t *testing.T) {
@@ -263,6 +266,56 @@ func TestRiskConfigDisabledWithoutModeLoadsOK(t *testing.T) {
   enabled: false
 `)
 	clearScannerEnv(t)
-	_, err := GetConfig()
+	config, err := GetConfig()
 	require.NoError(t, err)
+	assert.False(t, config.Risk.Risk.Enabled)
+}
+
+func TestRiskNumbersMustBeFinite(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     map[string]string
+		wantErr string // empty means GetConfig must succeed
+	}{
+		{
+			name: "NaN default EPSS",
+			env: map[string]string{
+				"SCANNER_RISK_ENABLED":      "true",
+				"SCANNER_RISK_MODE":         "formula",
+				"SCANNER_RISK_DEFAULT_EPSS": "NaN",
+			},
+			wantErr: "SCANNER_RISK_DEFAULT_EPSS",
+		},
+		{
+			name: "+Inf high threshold",
+			env: map[string]string{
+				"SCANNER_RISK_ENABLED": "true",
+				"SCANNER_RISK_MODE":    "formula",
+				"SCANNER_RISK_HIGH":    "+Inf",
+			},
+			wantErr: "SCANNER_RISK_HIGH",
+		},
+		{
+			name: "NaN ignored when risk is disabled",
+			env: map[string]string{
+				"SCANNER_RISK_ENABLED": "false",
+				"SCANNER_RISK_HIGH":    "NaN",
+			},
+			wantErr: "",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			clearScannerEnv(t)
+			for k, v := range c.env {
+				t.Setenv(k, v)
+			}
+			_, err := GetConfig()
+			if c.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorContains(t, err, c.wantErr)
+			}
+		})
+	}
 }
