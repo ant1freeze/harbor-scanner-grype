@@ -29,7 +29,9 @@ type Vulnerability struct {
 	Fix         Fix           `json:"fix"`
 	Advisories  []interface{} `json:"advisories"`
 	EPSS        []EPSS        `json:"epss,omitempty"` // Array in Grype 0.100.0
-	// RelatedVulnerabilities is never filled by grype's JSON (grype puts related records on the match, see Match.RelatedVulnerabilities); it is kept only for the legacy formula mode.
+	// RelatedVulnerabilities is always empty in grype's JSON, which puts related records on the
+	// match (see Match.RelatedVulnerabilities). The legacy formula and cvss code still reads it
+	// (getEPSSScore and getCVSSScore in pkg/scan), so their fallbacks to related records never fire.
 	RelatedVulnerabilities []RelatedVulnerability `json:"relatedVulnerabilities,omitempty"`
 	KnownExploited         []KnownExploited       `json:"knownExploited,omitempty"`
 	CWEs                   []CWE                  `json:"cwes,omitempty"`
