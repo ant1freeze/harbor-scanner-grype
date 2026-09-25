@@ -12,22 +12,24 @@ type ScanReport struct {
 }
 
 type Match struct {
-	Vulnerability          Vulnerability          `json:"vulnerability"`
+	Vulnerability Vulnerability `json:"vulnerability"`
+	// RelatedVulnerabilities are the records grype links to the match (for a distro advisory, the NVD record of its CVE); grype puts them next to vulnerability.
 	RelatedVulnerabilities []RelatedVulnerability `json:"relatedVulnerabilities,omitempty"`
 	Artifact               Artifact               `json:"artifact"`
 }
 
 type Vulnerability struct {
-	ID                     string                 `json:"id"`
-	DataSource             string                 `json:"dataSource"`
-	Namespace              string                 `json:"namespace"`
-	Severity               string                 `json:"severity"`
-	URLs                   []string               `json:"urls"`
-	Description            string                 `json:"description"`
-	Cvss                   []Cvss                 `json:"cvss"`
-	Fix                    Fix                    `json:"fix"`
-	Advisories             []interface{}          `json:"advisories"`
-	EPSS                   []EPSS                 `json:"epss,omitempty"` // Array in Grype 0.100.0
+	ID          string        `json:"id"`
+	DataSource  string        `json:"dataSource"`
+	Namespace   string        `json:"namespace"`
+	Severity    string        `json:"severity"`
+	URLs        []string      `json:"urls"`
+	Description string        `json:"description"`
+	Cvss        []Cvss        `json:"cvss"`
+	Fix         Fix           `json:"fix"`
+	Advisories  []interface{} `json:"advisories"`
+	EPSS        []EPSS        `json:"epss,omitempty"` // Array in Grype 0.100.0
+	// RelatedVulnerabilities is never filled by grype's JSON (grype puts related records on the match, see Match.RelatedVulnerabilities); it is kept only for the legacy formula mode.
 	RelatedVulnerabilities []RelatedVulnerability `json:"relatedVulnerabilities,omitempty"`
 	KnownExploited         []KnownExploited       `json:"knownExploited,omitempty"`
 	CWEs                   []CWE                  `json:"cwes,omitempty"`

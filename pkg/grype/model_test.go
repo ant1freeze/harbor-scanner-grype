@@ -36,6 +36,7 @@ func TestMatchCarriesPolicyInputs(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(matchJSON), &m))
 
 	v := m.Vulnerability
+	assert.Empty(t, v.RelatedVulnerabilities, "grype puts related records on the match, not inside the vulnerability")
 	assert.Equal(t, 98.7, v.Risk)
 	assert.Equal(t, []KnownExploited{{CVE: "CVE-2025-24813", DateAdded: "2025-04-01", KnownRansomwareCampaignUse: "Unknown"}}, v.KnownExploited)
 	require.Len(t, v.EPSS, 1)
