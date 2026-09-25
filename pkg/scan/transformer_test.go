@@ -7,6 +7,7 @@ import (
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/etc"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/grype"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/harbor"
+	"github.com/aquasecurity/harbor-scanner-grype/pkg/policy"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -409,7 +410,7 @@ func TestTransformWithRiskCalculation(t *testing.T) {
 		},
 	}}
 
-	transformer := NewTransformer(&SystemClock{}, config)
+	transformer := NewTransformer(&SystemClock{}, config, policy.Thresholds{}, nil)
 
 	request := harbor.ScanRequest{
 		Artifact: harbor.Artifact{
@@ -419,8 +420,8 @@ func TestTransformWithRiskCalculation(t *testing.T) {
 	}
 
 	report := grype.Report{
-		Vulnerabilities: []grype.Vulnerability{
-			{
+		Matches: []grype.Match{{
+			Vulnerability: grype.Vulnerability{
 				ID: "CVE-2023-1234",
 				EPSS: []grype.EPSS{
 					{Score: 0.9}, // 90% EPSS
@@ -434,7 +435,8 @@ func TestTransformWithRiskCalculation(t *testing.T) {
 					},
 				},
 			},
-		},
+			Artifact: grype.Artifact{Name: "libssl3", Version: "3.0.11"},
+		}},
 	}
 
 	// Use any MediaType that's not SPDX or CycloneDX to trigger vulnerability processing
@@ -444,4 +446,5 @@ func TestTransformWithRiskCalculation(t *testing.T) {
 	assert.Equal(t, harbor.SevCritical, result.Severity)
 	assert.Len(t, result.Vulnerabilities, 1)
 	assert.Equal(t, harbor.SevCritical, result.Vulnerabilities[0].Severity)
+	assert.Equal(t, "libssl3", result.Vulnerabilities[0].Pkg)
 }

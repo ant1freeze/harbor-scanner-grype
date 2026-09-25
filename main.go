@@ -6,13 +6,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/etc"
+	"github.com/aquasecurity/harbor-scanner-grype/pkg/exploitdb"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/ext"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/grype"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/http/api"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/http/api/v1"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/persistence/redis"
+	"github.com/aquasecurity/harbor-scanner-grype/pkg/policy"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/queue"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/redisx"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/scan"
@@ -66,8 +69,20 @@ func main() {
 	// Create store
 	store := redis.NewStore(config.RedisStore, rdb)
 
-	// Create transformer
-	transformer := scan.NewTransformer(&scan.SystemClock{}, config.Risk)
+	// Create transformer. The Exploit-DB list is only read in the policy mode.
+	var exploits policy.ExploitLookup
+	if config.Risk.Risk.Enabled && config.Risk.Risk.Mode == "policy" {
+		exploits = exploitdb.NewWatcher(config.Policy.ExploitDBFile, time.Minute, config.Policy.ExploitDBMaxAge)
+		slog.Info("Severity policy enabled",
+			slog.Float64("critical_from", config.Policy.Critical),
+			slog.Float64("high_from", config.Policy.High),
+			slog.Float64("medium_from", config.Policy.Medium))
+	}
+	transformer := scan.NewTransformer(&scan.SystemClock{}, config.Risk, policy.Thresholds{
+		Critical: config.Policy.Critical,
+		High:     config.Policy.High,
+		Medium:   config.Policy.Medium,
+	}, exploits)
 
 	// Create controller
 	controller := scan.NewController(store, grypeWrapper, transformer)

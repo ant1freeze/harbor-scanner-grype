@@ -2,12 +2,14 @@ package scan
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/etc"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/grype"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/harbor"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/http/api"
+	"github.com/aquasecurity/harbor-scanner-grype/pkg/policy"
 )
 
 type Transformer interface {
@@ -16,14 +18,20 @@ type Transformer interface {
 }
 
 type transformer struct {
-	clock  Clock
-	config etc.RiskConfig
+	clock      Clock
+	config     etc.RiskConfig
+	thresholds policy.Thresholds
+	exploits   policy.ExploitLookup
 }
 
-func NewTransformer(clock Clock, config etc.RiskConfig) Transformer {
+// NewTransformer builds Harbor reports from grype output. exploits may be nil: the policy then
+// finds exploits only through vulnerability links.
+func NewTransformer(clock Clock, config etc.RiskConfig, thresholds policy.Thresholds, exploits policy.ExploitLookup) Transformer {
 	return &transformer{
-		clock:  clock,
-		config: config,
+		clock:      clock,
+		config:     config,
+		thresholds: thresholds,
+		exploits:   exploits,
 	}
 }
 
@@ -38,9 +46,6 @@ func (c *SystemClock) Now() time.Time {
 }
 
 func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequest, report grype.Report) *harbor.ScanReport {
-	// Debug: Print configuration
-	// Risk calculation configuration loaded
-
 	scanReport := &harbor.ScanReport{
 		GeneratedAt: t.clock.Now(),
 		Artifact:    request.Artifact,
@@ -53,82 +58,83 @@ func (t *transformer) Transform(mediaType api.MediaType, request harbor.ScanRequ
 		return scanReport
 	}
 
-	// Transform vulnerabilities
+	// One Harbor item per grype match: a CVE found in libcrypto3, libssl3 and openssl is three
+	// items, each with its own package.
 	var vulnerabilities []harbor.VulnerabilityItem
 	var maxSeverity harbor.Severity
-
-	for _, vuln := range report.Vulnerabilities {
-		// Find corresponding match for this vulnerability to get package info
-		var match *grype.Match
-		for _, m := range report.Matches {
-			if m.Vulnerability.ID == vuln.ID {
-				match = &m
-				break
-			}
+	for _, match := range report.Matches {
+		item := t.toItem(match)
+		if item.Severity > maxSeverity {
+			maxSeverity = item.Severity
 		}
-
-		// Calculate severity based on configuration
-		var severity harbor.Severity
-		var riskInfo string
-		if t.config.Risk.Enabled {
-			severity, riskInfo = t.calculateSeverityWithInfo(vuln)
-		} else {
-			severity = mapGrypeSeverityToHarbor(vuln.Severity)
-			riskInfo = ""
-		}
-
-		// Create description with risk calculation info
-		description := vuln.Description
-		if riskInfo != "" {
-			description = vuln.Description + riskInfo
-		}
-
-		vulnerability := harbor.VulnerabilityItem{
-			ID:          vuln.ID,
-			Description: description,
-			Links:       vuln.URLs,
-			Severity:    severity,
-		}
-
-		// Fill package information if match is found
-		if match != nil {
-			vulnerability.Pkg = match.Artifact.Name
-			vulnerability.Version = match.Artifact.Version
-
-			// Set fix version from vulnerability fix information
-			if len(vuln.Fix.Versions) > 0 {
-				vulnerability.FixVersion = vuln.Fix.Versions[0]
-			}
-		}
-
-		// Track max severity
-		if severity > maxSeverity {
-			maxSeverity = severity
-		}
-
-		// Add CVSS information if available
-		if len(vuln.Cvss) > 0 {
-			cvss := vuln.Cvss[0] // Use first CVSS entry
-			vulnerability.PreferredCVSS = &harbor.CVSSDetails{
-				VectorV2: cvss.Vector,
-				VectorV3: cvss.Vector,
-			}
-			if cvss.Version == "2.0" {
-				score := float32(cvss.Metrics.BaseScore)
-				vulnerability.PreferredCVSS.ScoreV2 = &score
-			} else if cvss.Version == "3.0" || cvss.Version == "3.1" {
-				score := float32(cvss.Metrics.BaseScore)
-				vulnerability.PreferredCVSS.ScoreV3 = &score
-			}
-		}
-
-		vulnerabilities = append(vulnerabilities, vulnerability)
+		vulnerabilities = append(vulnerabilities, item)
 	}
 
 	scanReport.Vulnerabilities = vulnerabilities
 	scanReport.Severity = maxSeverity
-
 	return scanReport
+}
+
+func (t *transformer) toItem(match grype.Match) harbor.VulnerabilityItem {
+	vuln := match.Vulnerability
+	item := harbor.VulnerabilityItem{
+		ID:          vuln.ID,
+		Pkg:         match.Artifact.Name,
+		Version:     match.Artifact.Version,
+		Description: vuln.Description,
+		Links:       vuln.URLs,
+	}
+	if len(vuln.Fix.Versions) > 0 {
+		item.FixVersion = vuln.Fix.Versions[0]
+	}
+
+	switch {
+	case !t.config.Risk.Enabled:
+		item.Severity = mapGrypeSeverityToHarbor(vuln.Severity)
+	case t.config.Risk.Mode == "policy":
+		res := policy.Evaluate(match, t.exploits, t.thresholds)
+		item.Severity = res.Severity
+		item.Description = withReason(res.Reason, vuln.Description)
+		item.Links = appendMissing(vuln.URLs, res.Links)
+	default:
+		severity, info := t.calculateSeverityWithInfo(vuln)
+		item.Severity = severity
+		item.Description = vuln.Description + info
+	}
+
+	if len(vuln.Cvss) > 0 {
+		cvss := vuln.Cvss[0] // Use first CVSS entry
+		item.PreferredCVSS = &harbor.CVSSDetails{
+			VectorV2: cvss.Vector,
+			VectorV3: cvss.Vector,
+		}
+		if cvss.Version == "2.0" {
+			score := float32(cvss.Metrics.BaseScore)
+			item.PreferredCVSS.ScoreV2 = &score
+		} else if cvss.Version == "3.0" || cvss.Version == "3.1" {
+			score := float32(cvss.Metrics.BaseScore)
+			item.PreferredCVSS.ScoreV3 = &score
+		}
+	}
+	return item
+}
+
+// withReason puts the explanation in front of the description; Harbor shows both as one paragraph.
+func withReason(reason, description string) string {
+	if description == "" {
+		return reason
+	}
+	return reason + " — " + description
+}
+
+func appendMissing(links, extra []string) []string {
+	out := append([]string(nil), links...)
+	for _, link := range extra {
+		if !slices.Contains(out, link) {
+			out = append(out, link)
+		}
+	}
+	return out
 }
 
 func mapGrypeSeverityToHarbor(severity string) harbor.Severity {
