@@ -304,6 +304,17 @@ func TestEvaluate(t *testing.T) {
 			severity: harbor.SevHigh,
 			reason:   "High: есть эксплойт в Exploit-DB (40006), уязвимость доступна по сети, критичность grype Critical; без эксплойта было бы Low (риск 4.7 по максимальному EPSS, grype показывает <0.1); в KEV нет.",
 		},
+		{
+			name: "rule 5: a Packet Storm vendor advisory copy is not a PoC",
+			match: grype.Match{Vulnerability: grype.Vulnerability{
+				ID: "CVE-2099-0400", Severity: "High", Risk: 1.2,
+				EPSS: []grype.EPSS{{CVE: "CVE-2099-0400", Score: 0.016}},
+				Cvss: []grype.Cvss{{Version: "3.1", Vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", Metrics: grype.Metrics{BaseScore: 9.8}}},
+				URLs: []string{"https://packetstormsecurity.com/files/153799/Kernel-Live-Patch-Security-Notice-LSN-0053-1.html"},
+			}},
+			severity: harbor.SevLow,
+			reason:   "Low: риск grype 1.2, ниже порога Medium (EPSS 1.6%, критичность grype High); эксплойтов не найдено; в KEV нет.",
+		},
 	}
 
 	for _, tt := range tests {

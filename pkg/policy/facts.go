@@ -13,6 +13,23 @@ import (
 // spec, section 4.2 (docs/superpowers/specs/2026-09-25-policy-mode-design.md).
 var pocPattern = regexp.MustCompile(`(?i)exploit-db\.com|packetstormsecurity\.com/files|rapid7\.com/db/modules|metasploit|0day\.today|seebug\.org|github\.com/[^/]+/[^/]*(poc|exploit|cve-\d{4}-\d+)`)
 
+// notPoCPattern marks links that pocPattern matches but that hold no exploit. Packet Storm republishes
+// vendor advisories, and Secunia's advisory summaries, under titles such as "Slackware Security
+// Advisory - curl Updates" or "Kernel Live Patch Security Notice LSN-0053-1": the slug of such a copy
+// opens with the publisher's name and "Security Advisory/Notice/Bulletin/Announcement". Researcher
+// advisories ("Qualys Security Advisory - …") are not listed: they carry exploitation details. The rest
+// are index pages: Packet Storm author and date listings, the Exploit-DB home page and its papers,
+// docs, GHDB, author and search pages.
+var notPoCPattern = regexp.MustCompile(`(?i)` +
+	`packetstormsecurity\.com/files/\d+/((Red-Hat|Ubuntu|Kernel-Live-Patch|Debian|Gentoo-Linux|(open)?SUSE|Slackware|Mandriva-Linux|FreeBSD|VMware|Apple|Cisco|HP|Asterisk-Project|OpenSSL|Siemens|Secunia)-Security-(Advisory|Notice|Bulletin|Announcement)|USN-\d|Security-Notice-For-)` +
+	`|packetstormsecurity\.com/files/(author|date|tags)/` +
+	`|exploit-db\.com(/(docs|papers|ghdb|google-hacking-database|author|search)[/?]|/?$)`)
+
+// isPoC reports whether a link points to a public exploit or proof-of-concept code.
+func isPoC(u string) bool {
+	return pocPattern.MatchString(u) && !notPoCPattern.MatchString(u)
+}
+
 // networkVector matches the base attack vector "network" in CVSS v2, v3 and v4 vectors,
 // but not the environmental MAV:N.
 var networkVector = regexp.MustCompile(`(^|/)AV:N(/|$)`)
@@ -126,17 +143,17 @@ func exploitIDs(cves []string, lookup ExploitLookup) []string {
 	return out
 }
 
-// firstPoC returns the first link matching pocPattern, checking the vulnerability's own URLs
-// before those of related records.
+// firstPoC returns the first link to a proof of concept (isPoC), checking the vulnerability's own
+// URLs before those of related records.
 func firstPoC(m grype.Match) string {
 	for _, u := range m.Vulnerability.URLs {
-		if pocPattern.MatchString(u) {
+		if isPoC(u) {
 			return u
 		}
 	}
 	for _, r := range m.RelatedVulnerabilities {
 		for _, u := range r.URLs {
-			if pocPattern.MatchString(u) {
+			if isPoC(u) {
 				return u
 			}
 		}
