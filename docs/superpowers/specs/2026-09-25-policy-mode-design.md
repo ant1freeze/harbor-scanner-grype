@@ -201,7 +201,19 @@ Harbor → `POST /api/v1/scan` с ключом → очередь в Redis → `
    Если уровень уже High или Critical, эксплойт только упоминается в пояснении.
 
 Ссылкой на PoC считается адрес, подходящий под шаблон из `tools/rescore.py` (без учёта регистра):
-`exploit-db\.com|packetstormsecurity\.com/files|rapid7\.com/db/modules|metasploit|0day\.today|seebug\.org|github\.com/[^/]+/[^/]*(poc|exploit|cve-\d{4}-\d+)`.
+`exploit-db\.com|packetstormsecurity\.com/files|rapid7\.com/db/modules|metasploit|0day\.today|seebug\.org|github\.com/[^/]+/[^/]*(poc|exploit|cve-\d{4}-\d+)`,
+кроме адресов, в которых эксплойта нет (`notPoCPattern` в `pkg/policy/facts.go`):
+- копий бюллетеней производителей на Packet Storm — имя файла начинается с «<Производитель>-Security-Advisory»
+  (Notice, Bulletin, Announcement), например `Kernel-Live-Patch-Security-Notice-LSN-0053-1.html`,
+  `Slackware-Security-Advisory-curl-Updates.html`, а также `USN-…` и `Security-Notice-For-…`. Бюллетени
+  исследователей («Qualys-Security-Advisory-…») остаются: в них есть детали эксплуатации;
+- служебных страниц: списков Packet Storm по автору, дате и тегам; главной Exploit-DB, её docs, papers, GHDB,
+  страниц автора и поиска.
+
+На базе от 2026-09-15 исключение убирает 146 из 147 копий бюллетеней среди 6 356 ссылок Packet Storm и не
+трогает ни одного эксплойта. Без него такие копии давали 2 859 ложных подъёмов по правилу 5 — в основном
+уведомления Ubuntu Kernel Live Patch и бюллетени Slackware, на которые ссылаются CVE ядра во всех
+дистрибутивах.
 
 ### 4.3 Уровни в Harbor
 
@@ -353,10 +365,13 @@ Critical, High, Medium, Low, Unknown. Уровень отчёта целиком
   impersonat, typosquat, hijack, dropper, stealer или «unauthorized … publish», и вручную отбирать
   вредоносные пакеты. Бюллетень с совсем нейтральным заголовком и ссылками (как у event-stream) такой поиск
   может пропустить.
-- Шаблон PoC смотрит на адрес, а не на содержимое. Ложные срабатывания: страницы Exploit-DB, которые не
-  эксплойты (автор, docs, papers, ghdb, главная; 35 ссылок в базе), копии бюллетеней на Packet Storm,
-  репозитории с «poc» внутри слова (EspoCRM, Neo4j APOC). Пропуски: gist без `#file-cve-…` в ссылке, PoC
-  глубже корня репозитория, raw.githubusercontent.com.
+- Шаблон PoC смотрит на адрес, а не на содержимое. Копии бюллетеней и служебные страницы исключены (§4.2);
+  остаются ложные срабатывания: репозитории с «poc» внутри слова (EspoCRM, Neo4j APOC), страницы, где слово
+  metasploit встречается без эксплойта (заметки к выпускам Metasploit), и копии бюллетеней с нестандартным
+  названием (одна такая в базе — `Apache-Struts-2.3.20-Security-Fixes.html`). Пропуски: gist без `#file-cve-…`
+  в ссылке, PoC глубже корня репозитория, raw.githubusercontent.com и новый адрес Packet Storm
+  `packetstorm.news/files/id/<n>/` (с 2025 года, 158 ссылок в базе, без названия в адресе — по нему не
+  понять, эксплойт это или бюллетень).
 - Факты бюллетеня с несколькими CVE сводятся вместе: эксплойт может быть у локальной CVE, а сетевой вектор — у
   другой, и правило 5 может поднять находку до High «по сети». По одним только ссылкам на PoC так устроены 273
   из 8 797 бюллетеней ALAS/ELSA с несколькими CVE (с номерами Exploit-DB — больше); у 242 из них критичность
