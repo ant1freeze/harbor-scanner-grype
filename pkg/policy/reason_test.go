@@ -23,6 +23,8 @@ func TestFormatPercent(t *testing.T) {
 	assert.Equal(t, "52.4%", formatPercent(0.524))
 	assert.Equal(t, "5.1%", formatPercent(0.051))
 	assert.Equal(t, "<0.1%", formatPercent(0.0003))
+	assert.Equal(t, "<0.1%", formatPercent(0.00088), "grype prints <0.1% for anything below 0.1%")
+	assert.Equal(t, "0.1%", formatPercent(0.001))
 	assert.Equal(t, "0%", formatPercent(0))
 }
 
@@ -30,7 +32,17 @@ func TestFormatRisk(t *testing.T) {
 	assert.Equal(t, "69.0", formatRisk(69.0))
 	assert.Equal(t, "2.9", formatRisk(2.88))
 	assert.Equal(t, "<0.1", formatRisk(0.03))
+	assert.Equal(t, "<0.1", formatRisk(0.0881), "grype prints <0.1 for anything below 0.1")
+	assert.Equal(t, "0.1", formatRisk(0.1))
 	assert.Equal(t, "0.0", formatRisk(0))
+}
+
+func TestShownRisk(t *testing.T) {
+	assert.Equal(t, 30.0, shownRisk(29.96))
+	assert.Equal(t, 29.9, shownRisk(29.94))
+	assert.Equal(t, 69.0, shownRisk(69.0))
+	assert.Equal(t, 0.1, shownRisk(0.1))
+	assert.Equal(t, 0.0, shownRisk(0.0881), "a risk shown as <0.1 counts as 0")
 }
 
 func TestFormatThreshold(t *testing.T) {
@@ -46,11 +58,23 @@ func TestExploitFact(t *testing.T) {
 	assert.Equal(t, "эксплойтов не найдено", exploitFact(facts{}))
 }
 
+func TestListIDs(t *testing.T) {
+	assert.Equal(t, "1, 2, 3", listIDs([]string{"1", "2", "3"}, 3))
+	assert.Equal(t, "1, 2, 3 и ещё 1", listIDs([]string{"1", "2", "3", "4"}, 3))
+}
+
 func TestShortURL(t *testing.T) {
 	assert.Equal(t, "exploit-db.com/exploits/52134", shortURL("https://www.exploit-db.com/exploits/52134"))
+	assert.Equal(t, "exploit-db.com/exploits/1", shortURL("http://www.exploit-db.com/exploits/1"))
 	long := shortURL("https://github.com/someone/" + strings.Repeat("a", 100))
 	assert.Len(t, long, 80)
 	assert.True(t, strings.HasSuffix(long, "..."))
+}
+
+func TestShortURLCapsAt80Characters(t *testing.T) {
+	exact := "example.com/" + strings.Repeat("a", 68) // 80 runes
+	assert.Equal(t, exact, shortURL("https://"+exact), "80 characters are kept as is")
+	assert.Equal(t, exact[:77]+"...", shortURL("https://"+exact+"a"), "81 characters become 77 and an ellipsis")
 }
 
 func TestShortURLKeepsValidUTF8(t *testing.T) {

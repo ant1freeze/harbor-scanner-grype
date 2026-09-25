@@ -24,32 +24,52 @@ func (r reason) String() string {
 	return s + "."
 }
 
-// formatPercent renders an EPSS probability (0–1) as a percentage: 0.92 → "92%", 0.524 → "52.4%".
+// formatPercent renders an EPSS probability (0–1) as a percentage with one decimal, without a
+// trailing ".0": 0.92 → "92%", 0.524 → "52.4%". Below 0.1% it is "<0.1%", as in grype's table.
 func formatPercent(p float64) string {
 	v := p * 100
-	if v > 0 && v < 0.05 {
+	if v > 0 && v < 0.1 {
 		return "<0.1%"
 	}
 	return strings.TrimSuffix(strconv.FormatFloat(v, 'f', 1, 64), ".0") + "%"
 }
 
-// formatRisk renders a grype risk (0–100) the way grype prints it: one decimal, "<0.1" for tiny values.
+// formatRisk renders a grype risk (0–100) as grype's table does: one decimal, "<0.1" below 0.1.
 func formatRisk(r float64) string {
-	if r > 0 && r < 0.05 {
+	if r > 0 && r < 0.1 {
 		return "<0.1"
 	}
 	return strconv.FormatFloat(r, 'f', 1, 64)
 }
 
+// shownRisk is the risk as formatRisk shows it. The ladder compares this value with the
+// thresholds, so the level always agrees with the text: 29.96 is shown as 30.0 and reaches the
+// High threshold of 30, and a risk shown as "<0.1" counts as 0.
+func shownRisk(r float64) float64 {
+	if r < 0.1 {
+		return 0
+	}
+	v, err := strconv.ParseFloat(strconv.FormatFloat(r, 'f', 1, 64), 64)
+	if err != nil {
+		return r
+	}
+	return v
+}
+
+// formatThreshold renders a threshold as set: 70 → "70", 12.5 → "12.5".
 func formatThreshold(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
-// exploitFact names the exploits of a finding: Exploit-DB ids first, at most three, else the PoC link.
+// maxShownExploitIDs is how many Exploit-DB ids the explanation names; the rest become "и ещё N".
+const maxShownExploitIDs = 3
+
+// exploitFact names the exploits of a finding: Exploit-DB ids first, at most maxShownExploitIDs,
+// else the PoC link.
 func exploitFact(f facts) string {
 	switch {
 	case len(f.exploits) > 0:
-		return "есть эксплойт в Exploit-DB (" + listIDs(f.exploits, 3) + ")"
+		return "есть эксплойт в Exploit-DB (" + listIDs(f.exploits, maxShownExploitIDs) + ")"
 	case f.poc != "":
 		return "есть PoC (" + shortURL(f.poc) + ")"
 	default:
@@ -57,15 +77,15 @@ func exploitFact(f facts) string {
 	}
 }
 
-func listIDs(ids []string, max int) string {
-	if len(ids) <= max {
+func listIDs(ids []string, limit int) string {
+	if len(ids) <= limit {
 		return strings.Join(ids, ", ")
 	}
-	return strings.Join(ids[:max], ", ") + fmt.Sprintf(" и ещё %d", len(ids)-max)
+	return strings.Join(ids[:limit], ", ") + fmt.Sprintf(" и ещё %d", len(ids)-limit)
 }
 
-// shortURL drops the scheme and "www." and caps the length at most 80 characters, cutting only
-// on a rune boundary so the result is always valid UTF-8.
+// shortURL drops the scheme and "www." and caps the length at 80 characters, cutting only on a
+// rune boundary so it never splits a multi-byte character.
 func shortURL(u string) string {
 	u = strings.TrimPrefix(strings.TrimPrefix(u, "https://"), "http://")
 	u = strings.TrimPrefix(u, "www.")
