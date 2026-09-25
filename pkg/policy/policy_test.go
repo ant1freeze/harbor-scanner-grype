@@ -343,6 +343,24 @@ func TestEvaluateLinksExploitDBPages(t *testing.T) {
 	assert.Contains(t, res.Reason, "есть эксплойт в Exploit-DB (1, 2, 3 и ещё 4)")
 }
 
+// When there is no Exploit-DB id, exploitFact instead names a PoC link (a related record's URL,
+// here — see facts.firstPoC); that link must be in Links too, or the mention in Reason has nothing
+// to click through to in Harbor.
+func TestEvaluateLinksPoC(t *testing.T) {
+	m := grype.Match{
+		Vulnerability: grype.Vulnerability{
+			ID: "CVE-2025-15467", Severity: "Critical", Risk: 49.3,
+			EPSS: []grype.EPSS{{CVE: "CVE-2025-15467", Score: 0.524}},
+		},
+		RelatedVulnerabilities: []grype.RelatedVulnerability{{ID: "CVE-2025-15467", URLs: []string{"https://github.com/guiimoraes/CVE-2025-15467"}}},
+	}
+
+	res := Evaluate(m, nil, thresholds)
+
+	assert.Contains(t, res.Reason, "есть PoC (")
+	assert.Equal(t, []string{"https://github.com/guiimoraes/CVE-2025-15467"}, res.Links)
+}
+
 // The ladder compares the risk as the text shows it, with one decimal.
 func TestLadderThresholds(t *testing.T) {
 	cases := map[float64]harbor.Severity{

@@ -71,7 +71,7 @@ func main() {
 
 	// Create transformer. The Exploit-DB list is only read in the policy mode.
 	var exploits policy.ExploitLookup
-	if config.Risk.Risk.Enabled && config.Risk.Risk.Mode == "policy" {
+	if config.Risk.Risk.PolicyMode() {
 		exploits = exploitdb.NewWatcher(config.Policy.ExploitDBFile, time.Minute, config.Policy.ExploitDBMaxAge)
 		slog.Info("Severity policy enabled",
 			slog.Float64("critical_from", config.Policy.Critical),

@@ -132,6 +132,12 @@ func TestRiskModeMustBeKnown(t *testing.T) {
 	assert.ErrorContains(t, err, "SCANNER_RISK_MODE")
 }
 
+func TestRiskConfigDataPolicyMode(t *testing.T) {
+	assert.True(t, RiskConfigData{Enabled: true, Mode: "policy"}.PolicyMode())
+	assert.False(t, RiskConfigData{Enabled: false, Mode: "policy"}.PolicyMode(), "disabled")
+	assert.False(t, RiskConfigData{Enabled: true, Mode: "formula"}.PolicyMode(), "formula mode")
+}
+
 func TestPolicyThresholdsMustBeOrdered(t *testing.T) {
 	clearScannerEnv(t)
 	t.Setenv("SCANNER_POLICY_HIGH", "80")

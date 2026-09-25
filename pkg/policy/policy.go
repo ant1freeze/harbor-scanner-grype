@@ -24,7 +24,10 @@ type ExploitLookup interface {
 	Lookup(cve string) []string
 }
 
-// Result is the level of one finding, the explanation shown in Harbor and links to exploits.
+// Result is the level of one finding, the explanation shown in Harbor, and links to evidence:
+// Exploit-DB pages for its known exploit ids, or, when the explanation instead names a PoC link
+// (no Exploit-DB ids, but a proof of concept), that PoC's own URL, so the mention in Reason is
+// clickable in Harbor.
 type Result struct {
 	Severity harbor.Severity
 	Reason   string
@@ -58,7 +61,7 @@ func Evaluate(m grype.Match, lookup ExploitLookup, t Thresholds) Result {
 	default:
 		r = exploitRule(f, baseRule(f, t))
 	}
-	return Result{Severity: r.level, Reason: r.String(), Links: exploitLinks(f.exploits)}
+	return Result{Severity: r.level, Reason: r.String(), Links: resultLinks(f)}
 }
 
 func kevRule(f facts) reason {
@@ -219,6 +222,17 @@ func exploitLinks(ids []string) []string {
 			break
 		}
 		links = append(links, "https://www.exploit-db.com/exploits/"+id)
+	}
+	return links
+}
+
+// resultLinks are the links for Result: Exploit-DB pages first, then, only when exploitFact names
+// a PoC instead of an Exploit-DB id (no exploits and a PoC link), that PoC's own URL — otherwise
+// the mention in the reason text ("есть PoC (…)") has nothing to click through to.
+func resultLinks(f facts) []string {
+	links := exploitLinks(f.exploits)
+	if len(f.exploits) == 0 && f.poc != "" {
+		links = append(links, f.poc)
 	}
 	return links
 }

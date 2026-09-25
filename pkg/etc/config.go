@@ -152,6 +152,9 @@ type RiskConfigData struct {
 	Enabled        bool           `yaml:"enabled"`
 }
 
+// PolicyMode reports whether levels come from the policy rules.
+func (r RiskConfigData) PolicyMode() bool { return r.Enabled && r.Mode == "policy" }
+
 // validate normalises the mode combined from risk-config.yaml and SCANNER_RISK_* overrides, then
 // checks it. When risk is disabled, the mode and the ten numbers below are never read, so neither
 // is checked: a config that used to start (e.g. no mode set, or a differently-cased mode, while

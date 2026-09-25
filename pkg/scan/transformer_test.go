@@ -7,6 +7,7 @@ import (
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/etc"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/grype"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/harbor"
+	"github.com/aquasecurity/harbor-scanner-grype/pkg/http/api"
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/policy"
 	"github.com/stretchr/testify/assert"
 )
@@ -447,4 +448,73 @@ func TestTransformWithRiskCalculation(t *testing.T) {
 	assert.Len(t, result.Vulnerabilities, 1)
 	assert.Equal(t, harbor.SevCritical, result.Vulnerabilities[0].Severity)
 	assert.Equal(t, "libssl3", result.Vulnerabilities[0].Pkg)
+}
+
+// The one-item-per-match fix applies to every risk mode, not just policy mode (see
+// TestTransformOneItemPerMatch in transformer_policy_test.go for the policy-mode version): a CVE
+// found in three packages must stay three items, each with its own package, in formula mode too.
+func TestTransformFormulaModeOneItemPerMatch(t *testing.T) {
+	config := etc.RiskConfig{Risk: etc.RiskConfigData{
+		Mode:    "formula",
+		Enabled: true,
+		Thresholds: etc.RiskThresholds{
+			Critical: 75.0,
+			High:     50.0,
+			Medium:   25.0,
+			Low:      10.0,
+		},
+		Defaults: etc.RiskDefaults{
+			EPSS: 0.1,
+			CVSS: 5.0,
+		},
+	}}
+	transformer := NewTransformer(&SystemClock{}, config, policy.Thresholds{}, nil)
+
+	vuln := grype.Vulnerability{
+		ID:   "CVE-2025-15467",
+		EPSS: []grype.EPSS{{Score: 0.9}},
+		Cvss: []grype.Cvss{{Version: "3.1", Metrics: grype.Metrics{BaseScore: 9.0}}},
+	}
+	report := grype.Report{Matches: []grype.Match{
+		{Vulnerability: vuln, Artifact: grype.Artifact{Name: "libcrypto3", Version: "3.5.4-r0"}},
+		{Vulnerability: vuln, Artifact: grype.Artifact{Name: "libssl3", Version: "3.5.4-r0"}},
+		{Vulnerability: vuln, Artifact: grype.Artifact{Name: "openssl", Version: "3.5.4-r0"}},
+	}}
+	request := harbor.ScanRequest{Artifact: harbor.Artifact{Repository: "test/repo", Digest: "sha256:1234567890"}}
+
+	result := transformer.Transform("application/vnd.security.vulnerability.report", request, report)
+
+	assert.Len(t, result.Vulnerabilities, 3)
+	var packages []string
+	for _, item := range result.Vulnerabilities {
+		packages = append(packages, item.Pkg)
+	}
+	assert.Equal(t, []string{"libcrypto3", "libssl3", "openssl"}, packages)
+}
+
+// SPDX and CycloneDX requests are SBOM requests, not vulnerability scans: Transform must return
+// only the SBOM, without touching report.Matches at all.
+func TestTransformSBOMMediaTypesReturnSBOMOnly(t *testing.T) {
+	transformer := NewTransformer(&SystemClock{}, etc.RiskConfig{}, policy.Thresholds{}, nil)
+	sbom := map[string]string{"format": "spdx"}
+	report := grype.Report{
+		SBOM: sbom,
+		Matches: []grype.Match{{
+			Vulnerability: grype.Vulnerability{ID: "CVE-2023-1234", Severity: "High"},
+			Artifact:      grype.Artifact{Name: "pkg", Version: "1.0"},
+		}},
+	}
+	request := harbor.ScanRequest{Artifact: harbor.Artifact{Repository: "test/repo", Digest: "sha256:1234567890"}}
+
+	for _, mediaType := range []api.MediaType{api.MediaTypeSPDX, api.MediaTypeCycloneDX} {
+		t.Run(string(mediaType), func(t *testing.T) {
+			result := transformer.Transform(mediaType, request, report)
+			assert.Equal(t, mediaType, result.MediaType)
+			assert.Equal(t, sbom, result.SBOM)
+			assert.Empty(t, result.Vulnerabilities)
+			// Severity is left at its Go zero value (distinct from SevUnknown, which is 1 — see
+			// harbor.Severity's iota), so the "severity" field is omitted from the SBOM JSON.
+			assert.Zero(t, result.Severity)
+		})
+	}
 }

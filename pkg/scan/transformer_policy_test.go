@@ -49,12 +49,17 @@ func TestTransformOneItemPerMatch(t *testing.T) {
 }
 
 func TestTransformPolicyModeExplainsLevel(t *testing.T) {
+	// urls has three spare slots after its one element. If appendMissing ever aliased the input
+	// instead of copying it (the "out := links" mutant), appending the Exploit-DB link below would
+	// land in that spare capacity and become visible through urls[:2][1].
+	urls := make([]string, 1, 4)
+	urls[0] = "https://github.com/advisories/GHSA-83qj-6fr2-vhqg"
 	report := grype.Report{Matches: []grype.Match{
 		{
 			Vulnerability: grype.Vulnerability{
 				ID: "GHSA-83qj-6fr2-vhqg", Severity: "Critical", Risk: 98.7,
 				Description:    "Apache Tomcat: Potential RCE and/or information disclosure and/or information corruption with partial PUT",
-				URLs:           []string{"https://github.com/advisories/GHSA-83qj-6fr2-vhqg"},
+				URLs:           urls,
 				KnownExploited: []grype.KnownExploited{{CVE: "CVE-2025-24813", DateAdded: "2025-04-01"}},
 			},
 			Artifact: grype.Artifact{Name: "tomcat-embed-core", Version: "10.1.30"},
@@ -68,8 +73,6 @@ func TestTransformPolicyModeExplainsLevel(t *testing.T) {
 			Artifact: grype.Artifact{Name: "stdlib", Version: "go1.21.0"},
 		},
 	}}
-	// appendMissing must copy vuln.URLs rather than mutate it in place.
-	tomcatURLs := report.Matches[0].Vulnerability.URLs
 
 	result := policyTransformer(fakeExploits{"CVE-2025-24813": {"52134"}}).
 		Transform("application/vnd.security.vulnerability.report", testRequest, report)
@@ -81,7 +84,7 @@ func TestTransformPolicyModeExplainsLevel(t *testing.T) {
 	assert.Equal(t, "Critical: есть в каталоге KEV с 2025-04-01; есть эксплойт в Exploit-DB (52134); риск grype 98.7."+
 		" — Apache Tomcat: Potential RCE and/or information disclosure and/or information corruption with partial PUT", tomcat.Description)
 	assert.Equal(t, []string{"https://github.com/advisories/GHSA-83qj-6fr2-vhqg", "https://www.exploit-db.com/exploits/52134"}, tomcat.Links)
-	assert.Len(t, tomcatURLs, 1)
+	assert.Equal(t, "", urls[:2][1], "appendMissing must copy links, not write into the caller's spare capacity")
 
 	assert.Equal(t, harbor.SevHigh, golang.Severity)
 	assert.Equal(t, "High: риск grype 69.0, порог High от 30 (EPSS 92%, критичность grype High); эксплойтов не найдено; в KEV нет."+
@@ -128,4 +131,55 @@ func TestTransformPolicyModeDoesNotDuplicateLinks(t *testing.T) {
 		Transform("application/vnd.security.vulnerability.report", testRequest, report)
 	require.Len(t, result.Vulnerabilities, 1)
 	assert.Equal(t, []string{"https://www.exploit-db.com/exploits/1", "https://www.exploit-db.com/exploits/2"}, result.Vulnerabilities[0].Links)
+}
+
+// The vulnerability database often writes the same Exploit-DB exploit in a different URL form
+// (trailing slash, http instead of https) than the one appendMissing builds from Exploit-DB ids.
+// The two must be recognised as the same exploit by numeric id, not added twice.
+func TestTransformPolicyModeDedupesLinksByExploitDBID(t *testing.T) {
+	report := grype.Report{Matches: []grype.Match{{
+		Vulnerability: grype.Vulnerability{ID: "CVE-2099-0201", Severity: "High", Risk: 40,
+			EPSS: []grype.EPSS{{CVE: "CVE-2099-0201", Score: 0.5}},
+			URLs: []string{"http://www.exploit-db.com/exploits/1/"}},
+		Artifact: grype.Artifact{Name: "pkg", Version: "1.0"},
+	}}}
+	result := policyTransformer(fakeExploits{"CVE-2099-0201": {"1", "2"}}).
+		Transform("application/vnd.security.vulnerability.report", testRequest, report)
+	require.Len(t, result.Vulnerabilities, 1)
+	assert.Equal(t, []string{
+		"http://www.exploit-db.com/exploits/1/",
+		"https://www.exploit-db.com/exploits/2",
+	}, result.Vulnerabilities[0].Links)
+}
+
+// A policy-mode item with nothing to link to still gets a non-nil, empty slice, so Harbor's JSON
+// shows "links": [] rather than "links": null.
+func TestTransformPolicyModeLinksNeverNil(t *testing.T) {
+	report := grype.Report{Matches: []grype.Match{{
+		Vulnerability: grype.Vulnerability{ID: "CVE-2099-0102", Severity: "Low"},
+		Artifact:      grype.Artifact{Name: "pkg", Version: "1.0"},
+	}}}
+	result := policyTransformer(nil).Transform("application/vnd.security.vulnerability.report", testRequest, report)
+	require.Len(t, result.Vulnerabilities, 1)
+	assert.NotNil(t, result.Vulnerabilities[0].Links)
+	assert.Empty(t, result.Vulnerabilities[0].Links)
+}
+
+// The PoC link firstPoC finds often comes from a related record's URLs, not the vulnerability's
+// own URLs, so it would otherwise be absent from vuln.URLs and left out of Links entirely.
+func TestTransformPolicyModePoCFromRelatedRecordIsLinked(t *testing.T) {
+	report := grype.Report{Matches: []grype.Match{{
+		Vulnerability: grype.Vulnerability{
+			ID: "CVE-2025-15467", Severity: "Critical", Risk: 49.3,
+			EPSS: []grype.EPSS{{CVE: "CVE-2025-15467", Score: 0.524}},
+		},
+		RelatedVulnerabilities: []grype.RelatedVulnerability{{ID: "CVE-2025-15467", URLs: []string{"https://github.com/guiimoraes/CVE-2025-15467"}}},
+		Artifact:               grype.Artifact{Name: "pkg", Version: "1.0"},
+	}}}
+
+	result := policyTransformer(nil).Transform("application/vnd.security.vulnerability.report", testRequest, report)
+
+	require.Len(t, result.Vulnerabilities, 1)
+	assert.Contains(t, result.Vulnerabilities[0].Description, "есть PoC (")
+	assert.Equal(t, []string{"https://github.com/guiimoraes/CVE-2025-15467"}, result.Vulnerabilities[0].Links)
 }

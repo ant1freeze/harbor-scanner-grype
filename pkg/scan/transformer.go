@@ -2,6 +2,7 @@ package scan
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"time"
 
@@ -91,7 +92,7 @@ func (t *transformer) toItem(match grype.Match) harbor.VulnerabilityItem {
 	switch {
 	case !t.config.Risk.Enabled:
 		item.Severity = mapGrypeSeverityToHarbor(vuln.Severity)
-	case t.config.Risk.Mode == "policy":
+	case t.config.Risk.PolicyMode():
 		res := policy.Evaluate(match, t.exploits, t.thresholds)
 		item.Severity = res.Severity
 		item.Description = withReason(res.Reason, vuln.Description)
@@ -127,9 +128,46 @@ func withReason(reason, description string) string {
 	return reason + " — " + description
 }
 
+// exploitDBIDPattern captures an Exploit-DB exploit page's numeric id regardless of scheme,
+// "www." or a trailing slash: it matches both "https://www.exploit-db.com/exploits/41855" and
+// "http://exploit-db.com/exploits/41855/".
+var exploitDBIDPattern = regexp.MustCompile(`(?i)exploit-db\.com/exploits/(\d+)`)
+
+// exploitDBID returns the numeric Exploit-DB exploit id in link, or "" when link is not an
+// Exploit-DB exploit page.
+func exploitDBID(link string) string {
+	m := exploitDBIDPattern.FindStringSubmatch(link)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
+// appendMissing merges extra into links without duplicates, and never returns nil: a policy-mode
+// item with no links then reports "links": [] rather than "links": null. The vulnerability
+// database and our own links write an Exploit-DB link in different forms (trailing slash, http vs
+// https, "www." or not), so those are deduped by numeric id; every other link is deduped by exact
+// string match.
 func appendMissing(links, extra []string) []string {
-	out := append([]string(nil), links...)
+	out := make([]string, 0, len(links)+len(extra))
+	out = append(out, links...)
+
+	ids := make(map[string]bool, len(out))
+	for _, link := range out {
+		if id := exploitDBID(link); id != "" {
+			ids[id] = true
+		}
+	}
+
 	for _, link := range extra {
+		if id := exploitDBID(link); id != "" {
+			if ids[id] {
+				continue
+			}
+			ids[id] = true
+			out = append(out, link)
+			continue
+		}
 		if !slices.Contains(out, link) {
 			out = append(out, link)
 		}
