@@ -11,13 +11,17 @@ import (
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/etc"
 )
 
-func NewClient(config etc.RedisPool) (*redis.Client, error) {
+// NewClient connects to Redis. waitingWorkers is the number of queue workers: each of them holds a
+// pool connection while it waits for a job in BLMOVE, so the pool gets that many connections on top
+// of SCANNER_REDIS_POOL_MAX_ACTIVE. Without them, idle workers take the whole pool and Harbor's scan
+// requests wait for a connection until Harbor gives up (it allows about 5 seconds).
+func NewClient(config etc.RedisPool, waitingWorkers int) (*redis.Client, error) {
 	opts, err := redis.ParseURL(config.URL)
 	if err != nil {
 		return nil, fmt.Errorf("parsing redis URL: %w", err)
 	}
 
-	opts.PoolSize = config.MaxActive
+	opts.PoolSize = config.MaxActive + max(waitingWorkers, 0)
 	opts.MinIdleConns = config.MaxIdle
 	opts.ConnMaxIdleTime = config.IdleTimeout
 	opts.DialTimeout = config.ConnectionTimeout

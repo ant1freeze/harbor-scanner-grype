@@ -48,7 +48,7 @@ func main() {
 		slog.String("built_at", buildInfo.Date))
 
 	// Create Redis client
-	rdb, err := redisx.NewClient(config.RedisPool)
+	rdb, err := redisx.NewClient(config.RedisPool, config.JobQueue.WorkerConcurrency)
 	if err != nil {
 		slog.Error("Failed to create Redis client", slog.String("err", err.Error()))
 		os.Exit(1)
