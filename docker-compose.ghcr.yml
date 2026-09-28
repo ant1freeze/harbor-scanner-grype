@@ -1,0 +1,74 @@
+# Harbor Scanner Grype from GitHub Container Registry, started with plain docker compose.
+#
+#   cp .env.example .env          # set at least SCANNER_API_KEY; see the comments in the file
+#   docker compose -f docker-compose.ghcr.yml pull
+#   docker compose -f docker-compose.ghcr.yml up -d
+#
+# Harbor must be running with its own docker compose: the adapter joins Harbor's network
+# harbor_harbor, and Harbor reaches it as http://grype-adapter:8090. Pin a version for servers
+# with SCANNER_IMAGE_TAG in .env (for example 1.0.0 or sha-1474705); the default is latest.
+services:
+  grype-adapter:
+    image: ghcr.io/kspsts/harbor-scanner-grype:${SCANNER_IMAGE_TAG:-latest}
+    container_name: grype-adapter
+    init: true
+    restart: unless-stopped
+    # Lets running scans stop cleanly; interrupted jobs are requeued on the next start.
+    stop_grace_period: 30s
+    env_file: .env
+    environment:
+      SCANNER_REDIS_URL: redis://grype-redis:6379
+    ports:
+      - "${SCANNER_HOST_PORT:-8090}:8090"
+    volumes:
+      # Vulnerability DB, updated nightly by cron; survives container re-creation.
+      - grype_db:/home/scanner/.cache/grype
+      # Exploit-DB list for SCANNER_RISK_MODE=policy, refreshed by the same nightly job.
+      - exploitdb:/home/scanner/.cache/exploitdb
+      # Large images: scans unpack the image here, so put it on a big disk (owner uid 10000).
+      # - /data/grype-tmp:/tmp/scanner
+    networks:
+      - harbor_harbor # to reach Harbor and be reached by it
+      - scanner       # private link to grype-redis
+    depends_on:
+      grype-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8090/probe/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Queue and results store, in memory only. Not attached to harbor_harbor: Harbor already has a
+  # service named "redis" there.
+  grype-redis:
+    image: redis:7-alpine
+    container_name: grype-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "no"
+      - --save
+      - ""
+      - --maxmemory
+      - ${SCANNER_REDIS_MAXMEMORY:-1gb}
+      - --maxmemory-policy
+      - volatile-ttl
+    networks:
+      - scanner
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  harbor_harbor:
+    external: true
+  scanner: {}
+
+volumes:
+  grype_db:
+  exploitdb:

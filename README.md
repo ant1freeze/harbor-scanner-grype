@@ -106,6 +106,16 @@ version tag), `:<branch>`, `:sha-<commit>`, and `:1.2.0` / `:1.2` for a git tag 
 version, push a tag: `git tag v1.2.0 && git push origin v1.2.0`. Pin servers to a version or `sha-` tag.
 Log in first if the package is private (a token with `read:packages`):
 
+The simplest way is [docker-compose.ghcr.yml](docker-compose.ghcr.yml), which runs the published image
+with plain docker compose (pin a version with `SCANNER_IMAGE_TAG` in `.env`):
+
+```bash
+cp .env.example .env && vi .env
+docker compose -f docker-compose.ghcr.yml up -d
+```
+
+Or keep the main compose file and retag the pulled image:
+
 ```bash
 docker login ghcr.io -u <github user>
 docker pull ghcr.io/kspsts/harbor-scanner-grype:latest
