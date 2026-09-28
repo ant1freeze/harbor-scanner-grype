@@ -83,7 +83,9 @@ vi .env            # set SCANNER_API_KEY and the registry settings, see Configur
 
 ### Option B: build from source
 
-The build downloads Go modules, grype, syft (checksums are verified) and the Exploit-DB list. If a
+The build compiles grype and syft from their release tags with the same Go as the adapter (the
+release binaries lag behind Go security fixes), downloads Go modules (checksums verified) and the
+Exploit-DB list. If a
 `grype-db.tar.zst` lies next to the `Dockerfile`, it is imported instead of downloading the
 vulnerability DB.
 

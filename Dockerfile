@@ -4,6 +4,34 @@
 #   docker buildx build --platform linux/amd64 -t ant1freeze/harbor-scanner-grype:latest --load .
 # A grype-db.tar.zst next to this file is imported instead of downloading the vulnerability DB.
 
+ARG GRYPE_VERSION=0.119.0
+ARG SYFT_VERSION=1.52.0
+
+# grype and syft are built from their release tags with the same Go as the adapter: the release
+# binaries lag behind Go security fixes, and they parse untrusted image content. TOOL_DEP_UPDATES
+# lists patch-level dependency updates for advisories reported against the released versions.
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS tools
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG GRYPE_VERSION
+ARG SYFT_VERSION
+ARG TOOL_DEP_UPDATES="github.com/containerd/containerd/v2@v2.3.6 go.opentelemetry.io/otel/sdk@v1.45.0"
+RUN apk add --no-cache git
+WORKDIR /tools
+RUN set -eu; \
+    for tool in "grype:${GRYPE_VERSION}" "syft:${SYFT_VERSION}"; do \
+      name="${tool%%:*}"; version="${tool##*:}"; \
+      git clone --quiet --depth 1 --branch "v${version}" "https://github.com/anchore/${name}.git" "/tools/${name}"; \
+      cd "/tools/${name}"; \
+      for dep in ${TOOL_DEP_UPDATES}; do \
+        if go list -m "${dep%@*}" >/dev/null 2>&1; then go get "${dep}"; fi; \
+      done; \
+      CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
+        -ldflags "-s -w -X main.version=${version} -X main.gitCommit=$(git rev-parse HEAD) -X main.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        -o "/out/${name}" "./cmd/${name}"; \
+    done; \
+    go clean -cache -modcache; rm -rf /tools
+
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
@@ -19,25 +47,12 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
       -o /out/scanner-grype .
 
 FROM alpine:3.24.1
-ARG TARGETARCH=amd64
-ARG GRYPE_VERSION=0.119.0
-ARG SYFT_VERSION=1.52.0
+ARG GRYPE_VERSION
 
 RUN apk upgrade --no-cache && \
     apk add --no-cache ca-certificates curl su-exec tzdata
 
-RUN set -eu; \
-    arch="${TARGETARCH:-amd64}"; \
-    for tool in "grype:${GRYPE_VERSION}" "syft:${SYFT_VERSION}"; do \
-      name="${tool%%:*}"; version="${tool##*:}"; \
-      base="https://github.com/anchore/${name}/releases/download/v${version}"; \
-      file="${name}_${version}_linux_${arch}.tar.gz"; \
-      curl -fsSL --retry 5 --retry-delay 3 -o "/tmp/${file}" "${base}/${file}"; \
-      curl -fsSL --retry 5 --retry-delay 3 "${base}/${name}_${version}_checksums.txt" \
-        | grep " ${file}\$" | (cd /tmp && sha256sum -c -); \
-      tar -xzf "/tmp/${file}" -C /usr/local/bin "${name}"; \
-      rm -f "/tmp/${file}"; \
-    done
+COPY --from=tools /out/grype /out/syft /usr/local/bin/
 
 RUN adduser -u 10000 -D -g '' scanner
 
@@ -58,7 +73,7 @@ RUN curl -fsSL --retry 5 --retry-delay 3 -o /usr/local/share/exploitdb/files_exp
 
 WORKDIR /home/scanner
 ENV PATH=/home/scanner/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    GRYPE_VERSION=0.119.0 \
+    GRYPE_VERSION=${GRYPE_VERSION} \
     GRYPE_DB_CACHE_DIR=/home/scanner/.cache/grype \
     SCANNER_LOG_LEVEL=info
 
