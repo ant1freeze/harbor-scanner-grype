@@ -1,8 +1,8 @@
 # Tests the adapter, then builds the linux/amd64 image and publishes it to GitHub Container Registry:
 #   ghcr.io/<owner>/harbor-scanner-grype:<branch>      e.g. feature-policy-mode
 #   ghcr.io/<owner>/harbor-scanner-grype:sha-<commit>  every build
-#   ghcr.io/<owner>/harbor-scanner-grype:<tag>         for git tags such as v1.2.0
-#   ghcr.io/<owner>/harbor-scanner-grype:latest        builds of the default branch
+#   ghcr.io/<owner>/harbor-scanner-grype:1.2.0, :1.2   for git tags such as v1.2.0
+#   ghcr.io/<owner>/harbor-scanner-grype:latest        the last build of main, feature/policy-mode or a v* tag
 # The build downloads a fresh vulnerability DB, so every image starts with a current one.
 name: docker-image
 
@@ -54,11 +54,13 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/harbor-scanner-grype
+          flavor: latest=false
           tags: |
             type=ref,event=branch
-            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=sha
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/policy-mode' || startsWith(github.ref, 'refs/tags/v') }}
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -66,6 +68,10 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
           # No layer cache on purpose: the Exploit-DB list and the vulnerability DB are downloaded
           # during the build and must be current in every image.
           no-cache: true

@@ -23,6 +23,13 @@ import (
 	"github.com/aquasecurity/harbor-scanner-grype/pkg/scan"
 )
 
+// Set at build time: go build -ldflags "-X main.version=... -X main.commit=... -X main.date=...".
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	// Log format and level from SCANNER_LOG_FORMAT and SCANNER_LOG_LEVEL
 	slog.SetDefault(slog.New(etc.NewLogHandler(os.Stdout)))
@@ -37,9 +44,9 @@ func main() {
 
 	// Create build info
 	buildInfo := etc.BuildInfo{
-		Version: "dev",
-		Commit:  "none",
-		Date:    "unknown",
+		Version: version,
+		Commit:  commit,
+		Date:    date,
 	}
 
 	slog.Info("Starting harbor-scanner-grype",
