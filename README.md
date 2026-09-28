@@ -1,7 +1,7 @@
 # Harbor Scanner Adapter for Grype
 
 A [Harbor](https://goharbor.io/) pluggable scanner that scans container images with
-[Grype](https://github.com/anchore/grype) 0.117.0 and [Syft](https://github.com/anchore/syft) 1.51.1.
+[Grype](https://github.com/anchore/grype) 0.119.0 and [Syft](https://github.com/anchore/syft) 1.52.0.
 It implements the Harbor Scanner Adapter API v1.1: vulnerability reports and SBOMs (SPDX, CycloneDX).
 
 ## Features
@@ -95,6 +95,26 @@ cp .env.example .env && vi .env
 ./deploy.sh
 ```
 
+### Option C: image from GitHub Container Registry
+
+GitHub Actions ([.github/workflows/docker-image.yml](.github/workflows/docker-image.yml)) tests every
+push and publishes a linux/amd64 image with a vulnerability DB that is current at build time:
+`ghcr.io/<owner>/harbor-scanner-grype:latest` (the last build of `main`, `feature/policy-mode` or a
+version tag), `:<branch>`, `:sha-<commit>`, and `:1.2.0` / `:1.2` for a git tag `v1.2.0`. To release a
+version, push a tag: `git tag v1.2.0 && git push origin v1.2.0`. Pin servers to a version or `sha-` tag.
+Log in first if the package is private (a token with `read:packages`):
+
+```bash
+docker login ghcr.io -u <github user>
+docker pull ghcr.io/kspsts/harbor-scanner-grype:latest
+docker tag ghcr.io/kspsts/harbor-scanner-grype:latest ant1freeze/harbor-scanner-grype:latest
+cp .env.example .env && vi .env
+./deploy.sh
+```
+
+The `docker tag` step keeps `docker-compose.yml` unchanged: it runs the local
+`ant1freeze/harbor-scanner-grype:latest` image and never pulls it.
+
 `deploy.sh` replaces containers named `grype-adapter` and `grype-redis` left from an earlier
 deployment. To roll back, load the old image and start the old compose file.
 
@@ -104,7 +124,8 @@ grype refuses to scan with a database older than `GRYPE_DB_MAX_ALLOWED_BUILT_AGE
 default). A cron job updates it nightly (`GRYPE_DB_UPDATE_SCHEDULE`, in `TZ`). To update right away:
 
 ```bash
-docker exec grype-adapter update-grype-db.sh
+docker exec -u scanner grype-adapter update-grype-db.sh
+docker exec -u scanner grype-adapter update-exploitdb.sh
 ```
 
 Without internet access, download a fresh archive on another machine (`grype db list` shows the
@@ -177,7 +198,7 @@ docker logs -f grype-adapter
 
 ## Development
 
-Go 1.22.
+Go 1.26 or newer (the image is built with Go 1.27).
 
 ```bash
 go test ./...
@@ -187,7 +208,7 @@ docker run -d --name test-redis -p 16380:6379 redis:7-alpine
 SCANNER_TEST_REDIS_URL=redis://localhost:16380/15 go test ./... -race
 ```
 
-The policy tests include real grype 0.117.0 reports (`pkg/policy/testdata`). Regenerate them when
+The policy tests include real grype 0.117.0 reports (the risk formula is unchanged in 0.119.0) (`pkg/policy/testdata`). Regenerate them when
 upgrading grype, because the risk formula is copied from that version.
 
 Design and plans: `docs/superpowers/specs` and `docs/superpowers/plans`.

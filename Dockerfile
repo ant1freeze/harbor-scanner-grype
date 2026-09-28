@@ -4,19 +4,24 @@
 #   docker buildx build --platform linux/amd64 -t ant1freeze/harbor-scanner-grype:latest --load .
 # A grype-db.tar.zst next to this file is imported instead of downloading the vulnerability DB.
 
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags "-s -w" -o /out/scanner-grype .
+ARG VERSION=dev
+ARG COMMIT=none
+ARG BUILD_DATE=unknown
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
+      -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}" \
+      -o /out/scanner-grype .
 
 FROM alpine:3.24.1
 ARG TARGETARCH=amd64
-ARG GRYPE_VERSION=0.117.0
-ARG SYFT_VERSION=1.51.1
+ARG GRYPE_VERSION=0.119.0
+ARG SYFT_VERSION=1.52.0
 
 RUN apk upgrade --no-cache && \
     apk add --no-cache ca-certificates curl su-exec tzdata
@@ -53,7 +58,7 @@ RUN curl -fsSL --retry 5 --retry-delay 3 -o /usr/local/share/exploitdb/files_exp
 
 WORKDIR /home/scanner
 ENV PATH=/home/scanner/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    GRYPE_VERSION=0.117.0 \
+    GRYPE_VERSION=0.119.0 \
     GRYPE_DB_CACHE_DIR=/home/scanner/.cache/grype \
     SCANNER_LOG_LEVEL=info
 

@@ -16,7 +16,8 @@ var stringSeverityScore = map[string]float64{
 	"critical":   9.0,
 }
 
-// severityFactor reproduces severity() from grype v0.117.0 grype/vulnerability/metadata.go:
+// severityFactor reproduces severity() from grype grype/vulnerability/metadata.go (the same in v0.117.0
+// and v0.119.0):
 // the average of the string severity and the mean non-zero CVSS base score, both on a 0–1 scale.
 // Without any non-zero CVSS score, the factor is the string severity alone.
 func severityFactor(severity string, cvss []grype.Cvss) float64 {

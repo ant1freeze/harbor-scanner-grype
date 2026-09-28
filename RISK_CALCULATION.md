@@ -228,7 +228,7 @@ Levels come from five rules, checked in this order for every grype finding (vuln
    CVSS, or from the related NVD records when it has none. Packet Storm copies of vendor advisories and
    index pages of Packet Storm and Exploit-DB do not count as exploits.
 
-The mode needs grype's JSON with the `risk` field (tested with grype 0.117.0); a report whose findings have EPSS but no risk logs a warning.
+The mode needs grype's JSON with the `risk` field (tested with grype 0.117.0 and 0.119.0); a report whose findings have EPSS but no risk logs a warning.
 
 The reason is written in front of the vulnerability description in Harbor, with the date of the
 assessment, for example:

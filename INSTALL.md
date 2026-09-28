@@ -1,7 +1,7 @@
 # Harbor Scanner Grype — установка (linux/amd64)
 
 Образ `ant1freeze/harbor-scanner-grype:latest` собирается из этого репозитория (`Dockerfile`):
-Grype 0.117.0, Syft 1.51.1, Alpine 3.24.1, база уязвимостей и список Exploit-DB внутри.
+Grype 0.119.0, Syft 1.52.0, Alpine 3.24 с обновлёнными пакетами, база уязвимостей и список Exploit-DB внутри.
 Сборка под серверы: `docker buildx build --platform linux/amd64 -t ant1freeze/harbor-scanner-grype:latest --load .`,
 перенос: `docker save ant1freeze/harbor-scanner-grype:latest | gzip > harbor-scanner-grype-amd64.tar.gz`.
 
