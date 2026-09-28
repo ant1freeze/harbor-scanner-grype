@@ -3,6 +3,12 @@
 # scans do not update the database themselves. Output goes to /var/log/grype-update.log,
 # which start.sh also forwards to the container log, in the adapter's key=value format.
 
+# Run as the scanner user, who owns the caches: a manual `docker exec` runs as root and would leave
+# files the adapter's scans cannot read.
+if [ "$(id -u)" = 0 ]; then
+    exec su-exec scanner env HOME=/home/scanner "$0" "$@"
+fi
+
 log() {
     level=$1
     shift

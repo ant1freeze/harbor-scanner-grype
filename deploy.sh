@@ -60,7 +60,7 @@ docker compose up -d --remove-orphans --wait
 
 docker compose ps
 PORT=$(docker compose port grype-adapter 8090 | sed 's/.*://')
-if curl -fsS -o /dev/null "http://localhost:$PORT/api/v1/metadata"; then
+if curl -fsS -o /dev/null "http://localhost:$PORT/probe/ready"; then
     echo "API is responding on http://localhost:$PORT"
 else
     echo "API is not responding, see: docker compose logs grype-adapter" >&2

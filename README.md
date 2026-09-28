@@ -104,7 +104,8 @@ grype refuses to scan with a database older than `GRYPE_DB_MAX_ALLOWED_BUILT_AGE
 default). A cron job updates it nightly (`GRYPE_DB_UPDATE_SCHEDULE`, in `TZ`). To update right away:
 
 ```bash
-docker exec grype-adapter update-grype-db.sh
+docker exec -u scanner grype-adapter update-grype-db.sh
+docker exec -u scanner grype-adapter update-exploitdb.sh
 ```
 
 Without internet access, download a fresh archive on another machine (`grype db list` shows the
