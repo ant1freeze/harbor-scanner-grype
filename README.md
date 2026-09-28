@@ -1,7 +1,7 @@
 # Harbor Scanner Adapter for Grype
 
 A [Harbor](https://goharbor.io/) pluggable scanner that scans container images with
-[Grype](https://github.com/anchore/grype) 0.117.0 and [Syft](https://github.com/anchore/syft) 1.51.1.
+[Grype](https://github.com/anchore/grype) 0.119.0 and [Syft](https://github.com/anchore/syft) 1.52.0.
 It implements the Harbor Scanner Adapter API v1.1: vulnerability reports and SBOMs (SPDX, CycloneDX).
 
 ## Features
@@ -198,7 +198,7 @@ docker logs -f grype-adapter
 
 ## Development
 
-Go 1.22.
+Go 1.26 or newer (the image is built with Go 1.27).
 
 ```bash
 go test ./...
@@ -208,7 +208,7 @@ docker run -d --name test-redis -p 16380:6379 redis:7-alpine
 SCANNER_TEST_REDIS_URL=redis://localhost:16380/15 go test ./... -race
 ```
 
-The policy tests include real grype 0.117.0 reports (`pkg/policy/testdata`). Regenerate them when
+The policy tests include real grype 0.117.0 reports (the risk formula is unchanged in 0.119.0) (`pkg/policy/testdata`). Regenerate them when
 upgrading grype, because the risk formula is copied from that version.
 
 Design and plans: `docs/superpowers/specs` and `docs/superpowers/plans`.
