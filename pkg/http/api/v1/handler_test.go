@@ -111,6 +111,33 @@ func TestMetadataReportsDatabaseDate(t *testing.T) {
 
 // SCANNER_GRYPE_INSECURE no longer affects anything (see pkg/grype.wrapper.registryEnv), so it must
 // not be reported either; the real registry TLS/HTTP flags take its place.
+// slowDBWrapper answers the version at once and hangs in grype db status, as grype can while a large
+// image is being scanned.
+type slowDBWrapper struct {
+	fakeWrapper
+	release chan struct{}
+}
+
+func (w slowDBWrapper) DBStatus() (grype.DBStatus, error) {
+	<-w.release
+	return w.fakeWrapper.DBStatus()
+}
+
+// Harbor gives up on the metadata after 5 seconds and then shows every artifact as unsupported.
+func TestMetadataAnswersWhileGrypeDBStatusHangs(t *testing.T) {
+	w := slowDBWrapper{release: make(chan struct{})}
+	defer close(w.release)
+	h := NewAPIHandler(etc.BuildInfo{}, etc.Config{API: etc.API{Key: "adapter-key"}}, nil, nil, w, nil)
+
+	for range 2 {
+		begin := time.Now()
+		props := metadataProperties(t, h)
+		assert.Less(t, time.Since(begin), 2*time.Second)
+		assert.Equal(t, "0.117.0", props["grype.version"])
+		assert.NotContains(t, props, "harbor.scanner-adapter/vulnerability-database-updated-at")
+	}
+}
+
 func TestMetadataDropsInsecureAndReportsRealRegistryFlags(t *testing.T) {
 	config := etc.Config{
 		API:      etc.API{Key: "adapter-key"},

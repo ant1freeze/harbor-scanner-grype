@@ -63,6 +63,11 @@ Details, limitations and all settings are in [RISK_CALCULATION.md](RISK_CALCULAT
 - An amd64 Linux server with Docker and Docker Compose v2.
 - Harbor installed with its own docker compose. The adapter joins Harbor's `harbor_harbor` network.
 - About 5 GB of disk for the image and volumes, and memory for the parallel scans.
+- Temp space for scans. A scan unpacks the image into `/tmp/scanner`, which takes 2–3 times the size
+  Harbor shows, for each parallel scan. That space is freed when the scan ends. Large images, such as
+  a 14 GB CUDA image, also need several GB of RAM per scan. For such images, mount a big disk at
+  `/tmp/scanner` (see [docker-compose.ghcr.yml](docker-compose.ghcr.yml)), lower
+  `SCANNER_JOB_QUEUE_WORKER_CONCURRENCY` and raise `SCANNER_GRYPE_TIMEOUT`.
 - Internet access, directly or through `HTTPS_PROXY`, for the nightly updates. Without it, import the
   vulnerability DB by hand.
 

@@ -25,7 +25,9 @@ services:
       - grype_db:/home/scanner/.cache/grype
       # Exploit-DB list for SCANNER_RISK_MODE=policy, refreshed by the same nightly job.
       - exploitdb:/home/scanner/.cache/exploitdb
-      # Large images: scans unpack the image here, so put it on a big disk (owner uid 10000).
+      # Scans unpack the image here: 2-3 times the size Harbor shows, for each parallel scan. The
+      # container's own layer sits on Docker's disk, so for large images mount a big disk here
+      # (the directory must belong to uid 10000: chown 10000:10000 /data/grype-tmp).
       # - /data/grype-tmp:/tmp/scanner
     networks:
       - harbor_harbor # to reach Harbor and be reached by it

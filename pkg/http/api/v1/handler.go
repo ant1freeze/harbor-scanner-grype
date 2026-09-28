@@ -44,9 +44,12 @@ type requestHandler struct {
 	config   etc.Config
 	enqueuer queue.Enqueuer
 	store    persistence.Store
-	wrapper  grype.Wrapper
 	exploits exploitDBInfo
 	api.BaseHandler
+
+	// GetMetadata never runs grype itself; see cachedCall.
+	grypeVersion *cachedCall[grype.VersionInfo]
+	dbStatus     *cachedCall[grype.DBStatus]
 }
 
 // NewAPIHandler builds the scanner's HTTP router. exploits is the Exploit-DB list watcher used to
@@ -57,9 +60,14 @@ func NewAPIHandler(info etc.BuildInfo, config etc.Config, enqueuer queue.Enqueue
 		config:   config,
 		enqueuer: enqueuer,
 		store:    store,
-		wrapper:  wrapper,
 		exploits: exploits,
+
+		grypeVersion: newCachedCall("grype version", wrapper.GetVersion, grypeInfoTTL, grypeInfoRetry, grypeInfoFirstWait),
+		dbStatus:     newCachedCall("vulnerability DB status", wrapper.DBStatus, grypeInfoTTL, grypeInfoRetry, grypeInfoFirstWait),
 	}
+	// Ask grype right away, so the first metadata request after start finds the answers ready.
+	handler.grypeVersion.refreshIfDue()
+	handler.dbStatus.refreshIfDue()
 
 	router := mux.NewRouter()
 	router.Use(handler.logRequest)
@@ -364,12 +372,7 @@ func (h *requestHandler) GetMetadata(res http.ResponseWriter, _ *http.Request) {
 		properties["env.SCANNER_POLICY_MEDIUM"] = formatThreshold(h.config.Policy.Medium)
 	}
 
-	vi, err := h.wrapper.GetVersion()
-	if err != nil {
-		slog.Error("Error while retrieving grype version", slog.String("err", err.Error()))
-	}
-
-	if err == nil {
+	if vi, ok := h.grypeVersion.get(); ok {
 		properties["grype.version"] = vi.Version
 		properties["grype.buildDate"] = vi.BuildDate.Format(time.RFC3339)
 		properties["grype.gitCommit"] = vi.GitCommit
@@ -380,9 +383,7 @@ func (h *requestHandler) GetMetadata(res http.ResponseWriter, _ *http.Request) {
 		properties["grype.libVersion"] = vi.LibVersion
 	}
 
-	if status, err := h.wrapper.DBStatus(); err != nil {
-		slog.Warn("Failed to read the vulnerability DB status", slog.String("err", err.Error()))
-	} else if !status.Built.IsZero() {
+	if status, ok := h.dbStatus.get(); ok && !status.Built.IsZero() {
 		properties["harbor.scanner-adapter/vulnerability-database-updated-at"] = status.Built.UTC().Format(time.RFC3339)
 	}
 
