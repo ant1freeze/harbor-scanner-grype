@@ -95,6 +95,24 @@ cp .env.example .env && vi .env
 ./deploy.sh
 ```
 
+### Option C: image from GitHub Container Registry
+
+GitHub Actions ([.github/workflows/docker-image.yml](.github/workflows/docker-image.yml)) tests every
+push and publishes a linux/amd64 image with a vulnerability DB that is current at build time:
+`ghcr.io/<owner>/harbor-scanner-grype:<branch>`, `:sha-<commit>`, `:<git tag>`, and `:latest` for the
+default branch. Log in first if the package is private (a token with `read:packages`):
+
+```bash
+docker login ghcr.io -u <github user>
+docker pull ghcr.io/kspsts/harbor-scanner-grype:feature-policy-mode
+docker tag ghcr.io/kspsts/harbor-scanner-grype:feature-policy-mode ant1freeze/harbor-scanner-grype:latest
+cp .env.example .env && vi .env
+./deploy.sh
+```
+
+The `docker tag` step keeps `docker-compose.yml` unchanged: it runs the local
+`ant1freeze/harbor-scanner-grype:latest` image and never pulls it.
+
 `deploy.sh` replaces containers named `grype-adapter` and `grype-redis` left from an earlier
 deployment. To roll back, load the old image and start the old compose file.
 
